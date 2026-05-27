@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QApplication
 
 from apis import config
 from apis import io
+from apis import utils
 from apis.sequence import PicsSequence
 from app.workers import XimeaCamera
 
@@ -119,6 +120,17 @@ class FakeSequenceCamera:
 
     def close(self):
         self.is_open = False
+
+
+class AngleAwareCalibrationCamera(FakeSequenceCamera):
+    def __init__(self):
+        super().__init__()
+        self.current_polarizer_angle = 0
+
+    def capture(self):
+        self.capture_count += 1
+        intensity = ((self.current_polarizer_angle - 40) ** 2) + self.current_polarizer_angle + 100
+        return np.full((6, 8), intensity, dtype=np.uint16)
 
 
 class FakeXiCamera:
@@ -281,6 +293,17 @@ class FakeMainCamera:
         return None
 
 
+class CalibrationController(FakeController):
+    def __init__(self, camera):
+        super().__init__()
+        self.camera = camera
+
+    def rotate_polarizer(self, angle):
+        self.polarizer_moves.append(angle)
+        self.camera.current_polarizer_angle = angle
+        return True
+
+
 class TestXimeaRaw16Sequence(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -298,14 +321,14 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
                 50000,
                 12000,
                 sample_angles=[0, 10],
-                do_crosspol=True,
-                do_normal=False,
+                do_xpl=True,
+                do_ppl=False,
                 live_exposure_us=12000,
                 live_gain_db=0.5,
                 live_thread_was_running=True,
             )
 
-            image_path = os.path.join(tmpdir, "sample1", "crosspol", "sample1_crosspol_000.tif")
+            image_path = os.path.join(tmpdir, "sample1", "xpl", "sample1_xpl_000.tif")
             metadata_path = os.path.join(tmpdir, "sample1", "sample1_metadata.json")
             csv_path = os.path.join(tmpdir, "sample1", "sample1_log.csv")
 
@@ -328,10 +351,50 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
             self.assertEqual(rows[0]["gain"], "0.0")
             self.assertEqual(cam.live_mode_calls[-1], (12000, 0.5))
 
+    def test_polarizer_calibration_recommends_darkest_xpl_and_derived_ppl(self):
+        cam = AngleAwareCalibrationCamera()
+        ctrl = CalibrationController(cam)
+        seq = PicsSequence(ctrl, cam)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            seq.run_polarizer_calibration(
+                tmpdir,
+                "sample_cal",
+                50000,
+                polarizer_angles=[0, 20, 40, 60, 80],
+                sample_angle=0,
+                live_exposure_us=12000,
+                live_gain_db=0.5,
+                live_thread_was_running=True,
+            )
+
+            self.assertEqual(seq.last_calibration_info["recommended_xpl_angle_deg"], 39)
+            self.assertEqual(seq.last_calibration_info["recommended_ppl_angle_deg"], 129)
+            self.assertEqual(seq.last_calibration_info["recommended_ppl_offset_deg"], 90)
+
+            metadata_path = os.path.join(tmpdir, "sample_cal", "sample_cal_polarizer_calibration.json")
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+
+            self.assertTrue(metadata["sequence_completed"])
+            self.assertEqual(metadata["recommended_xpl_angle_deg"], 39)
+            self.assertEqual(metadata["recommended_ppl_angle_deg"], 129)
+            self.assertEqual(metadata["recommended_ppl_offset_deg"], 90)
+            self.assertEqual(metadata["coarse_darkest_angle_deg"], 40)
+            self.assertEqual(metadata["fine_scan_angles_deg"][0], 30)
+            self.assertEqual(metadata["fine_scan_angles_deg"][-1], 50)
+            self.assertEqual(len(metadata["scan_results"]), 26)
+
+    def test_choose_orthogonal_polarizer_angle_uses_negative_90_when_positive_is_out_of_range(self):
+        ppl_angle, offset = utils.choose_orthogonal_polarizer_angle(120, 0, 169)
+
+        self.assertEqual(ppl_angle, 30)
+        self.assertEqual(offset, -90)
+
     def test_convert_raw16_tree_to_rgb_preview_processes_root_and_one_child_level(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root_file = os.path.join(tmpdir, "root_raw.tif")
-            child_dir = os.path.join(tmpdir, "crosspol")
+            child_dir = os.path.join(tmpdir, "xpl")
             deep_dir = os.path.join(child_dir, "deep")
             skip_dir = os.path.join(tmpdir, "existing_rgb")
             os.makedirs(child_dir, exist_ok=True)
@@ -351,8 +414,8 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
             self.assertGreaterEqual(len(summary["skipped"]), 1)
             output_root = summary["output_dir"]
             root_rgb = os.path.join(output_root, "root_raw_rgb.tif")
-            child_rgb = os.path.join(output_root, "crosspol", "child_raw_rgb.tif")
-            deep_rgb = os.path.join(output_root, "crosspol", "deep", "too_deep_rgb.tif")
+            child_rgb = os.path.join(output_root, "xpl", "child_raw_rgb.tif")
+            deep_rgb = os.path.join(output_root, "xpl", "deep", "too_deep_rgb.tif")
 
             self.assertTrue(os.path.exists(root_rgb))
             self.assertTrue(os.path.exists(child_rgb))
@@ -378,8 +441,8 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
                     50000,
                     12000,
                     sample_angles=[0, 10],
-                    do_crosspol=True,
-                    do_normal=False,
+                    do_xpl=True,
+                    do_ppl=False,
                     live_exposure_us=10000,
                     live_gain_db=0.25,
                     live_thread_was_running=True,

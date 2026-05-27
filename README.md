@@ -40,7 +40,7 @@ APIS (Latin for 'bee') is a control system for an automated 2-axis polarization 
 - Sample motor (Axis 2): HS-318 servo @ Pin 11
 - Camera: XIMEA USB 3.0/3.1 camera
 - Polarizer film: Edmund Optics `50 mm Dia. Linear Polarizing Film (XP42-18)`, PN `29490`
-- Analyzer polarizer: mount a second linear polarizer in front of the camera lens for cross-polarization imaging
+- Analyzer polarizer: mount a second linear polarizer in front of the camera lens for XPL imaging
 - Backlight: MORITEX MEBL-CW7050 with MLEK-A080W2LR (used in our lab setup)
   - Other backlight models can be used.
   - Mechanical/optical design should be adapted to the selected backlight specifications.
@@ -68,11 +68,11 @@ APIS (Latin for 'bee') is a control system for an automated 2-axis polarization 
   - Arduino and both servos share ground.
 - Calibration
   - Both polarizer and sample stages use an image-derived calibration ratio in Python.
-  - Current stage calibration is based on `data/calibrationsample/normal`.
+  - Current stage calibration is based on a PPL calibration capture set under `data/calibrationsample/`.
   - Current calibrated stage-to-servo ratio is `1.059` for both axes.
   - With the current `0-180` servo command range, the calibrated software max angle is `169 deg` per stage.
   - Re-run calibration after reprinting parts, changing gear fit, or remounting servos.
-  - For the cross-polarized crystallinity imaging workflow targeted by this build, the required operating states fall within a limited angular working envelope, so a compact servo-driven transmission was appropriate for the current system.
+  - For the PPL/XPL crystallinity imaging workflow targeted by this build, the required operating states fall within a limited angular working envelope, so a compact servo-driven transmission was appropriate for the current system.
   - If a future version needs reliable motion well beyond this working envelope, upgrade the mechanical drive by changing the transmission ratio or moving to a stepper-based axis.
 
 ### Software
@@ -144,7 +144,7 @@ If you are assembling the hardware from scratch, complete the mechanical assembl
 - The live-view exposure default is `18000 us`
 - For the current XIMEA acquisition baseline, auto white balance is disabled during capture.
 - Camera gamma is fixed to `1.0` for both live view and sequence capture.
-- Fixed white balance is currently `R=1.40`, `G=1.00`, `B=1.20` for both Normal and Crosspol acquisition.
+- Fixed white balance is currently `R=1.40`, `G=1.00`, `B=1.20` for both PPL and XPL acquisition.
 - Re-check the fixed WB values if illumination, analyzer/polarizer alignment, or optics are changed.
 
 ### Live View and Snapshot
@@ -154,19 +154,23 @@ If you are assembling the hardware from scratch, complete the mechanical assembl
 
 ### Sequence Control
 - Set Save Directory and Sample ID
-- Choose modes: Crosspol / Normal
-- Set exposures (defaults: Crosspol `50000 us`, Normal `18000 us`)
+- Choose modes: XPL / PPL
+- Set exposures (defaults: XPL `500000 us`, PPL `18000 us`)
+- Set `XPL Polarizer Angle`; `PPL Polarizer Angle` is derived automatically from `XPL + 90 deg` or `XPL - 90 deg`, whichever stays inside the reachable polarizer range
 - Set angles (list or range, within the calibrated software range)
   - List: `90,60,45,30,0`
   - Range: `0:169:15`
 - Settling Time: motor settle delay after each move
+- Polarizer calibration scan: capture `0:169:5` by default at `200000 us`, find the darkest coarse angle, then rescan `-10..+10 deg` around it at `1 deg` steps to set XPL
+- PPL baseline is derived automatically from `XPL + 90 deg` or `XPL - 90 deg`, whichever is reachable
+- The calibrated XPL/PPL baseline is saved and reused on later app launches
 - Sequence capture uses `XI_RAW16` only
 - During sequence capture, live view is paused and restored after completion
 - Sequence images are saved as Bayer RAW `uint16 TIFF` without demosaicing or gamma
 
 ### Polarizer Angles (Sequence)
-- Crosspol: polarizer moves to 90 degrees
-- Normal: polarizer moves to 0 degrees
+- XPL: baseline capture angle, default `95 deg` until a saved baseline is available
+- PPL: derived automatically from XPL as the reachable orthogonal angle, defaulting to `5 deg` from the current baseline
 
 ### Image Conversion
 - Convert saved RAW16 TIFFs into confirmation-only `RGB8` previews
@@ -180,8 +184,9 @@ If you are assembling the hardware from scratch, complete the mechanical assembl
 ## 6. Outputs
 
 - Images:
-  - `{SaveDir}/{SampleID}/crosspol`
-  - `{SaveDir}/{SampleID}/normal`
+  - `{SaveDir}/{SampleID}/xpl`
+  - `{SaveDir}/{SampleID}/ppl`
+  - `{SaveDir}/{SampleID}/polarizer_calibration`
 - Log file:
   - `{SaveDir}/{SampleID}/{SampleID}_log.csv`
 - Sequence metadata:
@@ -190,7 +195,7 @@ If you are assembling the hardware from scratch, complete the mechanical assembl
   - `{SaveDir}/snapshot_log.csv`
 - Optional RGB preview conversion:
   - `{SelectedFolder}_rgb/`
-  - Example: `{SaveDir}/{SampleID}_rgb/crosspol/*_rgb.tif`
+  - Example: `{SaveDir}/{SampleID}_rgb/xpl/*_rgb.tif`
 
 ---
 
@@ -228,7 +233,7 @@ Recommended flow:
 
 Example:
 ```powershell
-.\build\build.ps1 -Version 0.1.2
+.\build\build.ps1 -Version 0.1.3
 ```
 
 ### Distribution package

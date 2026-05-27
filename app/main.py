@@ -3,6 +3,7 @@ import os
 import time
 import logging
 import ctypes
+import json
 import cv2
 import re
 import numpy as np
@@ -21,7 +22,13 @@ sys.path.append(".")
 from apis.controller import PicsController
 from apis.sequence import PicsSequence
 from apis import config, utils, io
-from app.workers import CameraThread, SequenceThread, DummyCamera, XimeaCamera
+from app.workers import (
+    CameraThread,
+    SequenceThread,
+    PolarizerCalibrationThread,
+    DummyCamera,
+    XimeaCamera,
+)
 
 # --- UI STATES ---
 STATE_DISCONNECTED = "DISCONNECTED"
@@ -47,6 +54,7 @@ class MainWindow(QMainWindow):
         
         # 1. Init Base State & UI (Required for Logging)
         self.current_state = STATE_DISCONNECTED
+        self._syncing_polarizer_angles = False
         self.init_ui()
         
         # --- Logic Objects ---
@@ -64,15 +72,17 @@ class MainWindow(QMainWindow):
             self.log("Initialized: XimeaCamera (Hardware)")
             
         self.sequence_logic = PicsSequence(self.ctrl, self.cam)
+        self._load_polarizer_baseline()
         
         self.cam_thread = None
         self.seq_thread = None
+        self.calib_thread = None
         self._logged_frame_info = False
         self._logged_channel_stats = False
         self._force_bgr_swap = False
         self._last_frame_rgb = None
-        self._exp_cross_last = config.XIMEA_DEFAULT_CROSSPOL_EXPOSURE_US
-        self._exp_normal_last = config.XIMEA_DEFAULT_NORMAL_EXPOSURE_US
+        self._exp_xpl_last = config.XIMEA_DEFAULT_XPL_EXPOSURE_US
+        self._exp_ppl_last = config.XIMEA_DEFAULT_PPL_EXPOSURE_US
         
         # Initial UI Update
         self.update_state_ui(STATE_DISCONNECTED)
@@ -244,7 +254,7 @@ class MainWindow(QMainWindow):
         self.spin_exp.valueChanged.connect(self.update_status_info)
         self.spin_gain.valueChanged.connect(self.update_status_info)
         
-        lbl_rec = QLabel("Rec: Crosspol=50,000us (50ms), Normal=18,000us (18ms)")
+        lbl_rec = QLabel("Rec: XPL=500,000us (500ms), PPL=18,000us (18ms)")
         lbl_rec.setStyleSheet("color: gray; font-size: 10px;")
         layout.addWidget(lbl_rec, 3, 0, 1, 2)
         
@@ -295,7 +305,7 @@ class MainWindow(QMainWindow):
         self.lbl_live.setStyleSheet("background-color: black; color: white;")
         layout.addWidget(self.lbl_live)
         
-        self.lbl_live_overlay = QLabel("LIVE PAUSED (Sequence Running)", self.lbl_live)
+        self.lbl_live_overlay = QLabel("LIVE PAUSED (Capture Running)", self.lbl_live)
         self.lbl_live_overlay.setStyleSheet("color: yellow; font-size: 24px; font-weight: bold; background: rgba(0,0,0,150);")
         self.lbl_live_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_live_overlay.setGeometry(0, 200, 640, 80)
@@ -347,55 +357,99 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(QLabel("Modes:"), 2, 0)
         modes_box = QHBoxLayout()
-        self.chk_crosspol = QCheckBox("Crosspol")
-        self.chk_crosspol.setChecked(True)
-        self.chk_normal = QCheckBox("Normal")
-        self.chk_normal.setChecked(True)
-        self.chk_crosspol.toggled.connect(self.on_seq_mode_toggle)
-        self.chk_normal.toggled.connect(self.on_seq_mode_toggle)
-        modes_box.addWidget(self.chk_crosspol)
-        modes_box.addWidget(self.chk_normal)
+        self.chk_xpl = QCheckBox("XPL")
+        self.chk_xpl.setChecked(True)
+        self.chk_ppl = QCheckBox("PPL")
+        self.chk_ppl.setChecked(True)
+        self.chk_xpl.toggled.connect(self.on_seq_mode_toggle)
+        self.chk_ppl.toggled.connect(self.on_seq_mode_toggle)
+        modes_box.addWidget(self.chk_xpl)
+        modes_box.addWidget(self.chk_ppl)
         modes_widget = QWidget()
         modes_widget.setLayout(modes_box)
         layout.addWidget(modes_widget, 2, 1, 1, 2)
         
-        layout.addWidget(QLabel("Crosspol Exposure (us):"), 3, 0)
-        self.spin_exp_cross = QSpinBox()
-        self.spin_exp_cross.setRange(100, 1000000)
-        self.spin_exp_cross.setValue(config.XIMEA_DEFAULT_CROSSPOL_EXPOSURE_US)
-        self.spin_exp_cross.setSingleStep(1000)
-        layout.addWidget(self.spin_exp_cross, 3, 1, 1, 2)
+        layout.addWidget(QLabel("XPL Exposure (us):"), 3, 0)
+        self.spin_exp_xpl = QSpinBox()
+        self.spin_exp_xpl.setRange(100, 1000000)
+        self.spin_exp_xpl.setValue(config.XIMEA_DEFAULT_XPL_EXPOSURE_US)
+        self.spin_exp_xpl.setSingleStep(1000)
+        layout.addWidget(self.spin_exp_xpl, 3, 1, 1, 2)
         
-        layout.addWidget(QLabel("Normal Exposure (us):"), 4, 0)
-        self.spin_exp_normal = QSpinBox()
-        self.spin_exp_normal.setRange(100, 1000000)
-        self.spin_exp_normal.setValue(config.XIMEA_DEFAULT_NORMAL_EXPOSURE_US)
-        self.spin_exp_normal.setSingleStep(1000)
-        layout.addWidget(self.spin_exp_normal, 4, 1, 1, 2)
+        layout.addWidget(QLabel("PPL Exposure (us):"), 4, 0)
+        self.spin_exp_ppl = QSpinBox()
+        self.spin_exp_ppl.setRange(100, 1000000)
+        self.spin_exp_ppl.setValue(config.XIMEA_DEFAULT_PPL_EXPOSURE_US)
+        self.spin_exp_ppl.setSingleStep(1000)
+        layout.addWidget(self.spin_exp_ppl, 4, 1, 1, 2)
+
+        layout.addWidget(QLabel("XPL Polarizer Angle (deg):"), 5, 0)
+        self.spin_xpl_angle = QSpinBox()
+        self.spin_xpl_angle.setRange(config.POLARIZER_STAGE_MIN_ANGLE, config.POLARIZER_STAGE_MAX_ANGLE)
+        self.spin_xpl_angle.setValue(config.POLARIZER_XPL_ANGLE_DEG)
+        self.spin_xpl_angle.valueChanged.connect(self.on_xpl_angle_changed)
+        layout.addWidget(self.spin_xpl_angle, 5, 1, 1, 2)
+
+        layout.addWidget(QLabel("PPL Polarizer Angle (deg):"), 6, 0)
+        self.spin_ppl_angle = QSpinBox()
+        self.spin_ppl_angle.setRange(config.POLARIZER_STAGE_MIN_ANGLE, config.POLARIZER_STAGE_MAX_ANGLE)
+        self.spin_ppl_angle.setValue(config.POLARIZER_PPL_ANGLE_DEG)
+        self.spin_ppl_angle.setReadOnly(True)
+        self.spin_ppl_angle.setToolTip("Derived automatically from XPL as a reachable orthogonal angle (XPL +/- 90 deg).")
+        layout.addWidget(self.spin_ppl_angle, 6, 1, 1, 2)
         
-        layout.addWidget(QLabel("Sample Angles (stage deg):"), 5, 0)
+        layout.addWidget(QLabel("Sample Angles (stage deg):"), 7, 0)
         self.edt_angles = QLineEdit("90,60,45,30,0")
         self.edt_angles.setToolTip(
             f"List or range. Examples: 0,30,60 or 0:{config.SAMPLE_STAGE_MAX_ANGLE}:15"
         )
-        layout.addWidget(self.edt_angles, 5, 1, 1, 2)
+        layout.addWidget(self.edt_angles, 7, 1, 1, 2)
         
-        layout.addWidget(QLabel("Settling Time (s, motor settle):"), 6, 0)
+        layout.addWidget(QLabel("Settling Time (s, motor settle):"), 8, 0)
         self.spin_settling = QDoubleSpinBox()
         self.spin_settling.setRange(0.1, 10.0)
         self.spin_settling.setValue(config.SETTLING_TIME_S)
-        layout.addWidget(self.spin_settling, 6, 1)
+        layout.addWidget(self.spin_settling, 8, 1)
+
+        layout.addWidget(QLabel("Calibration Scan (pol deg):"), 9, 0)
+        self.edt_cal_angles = QLineEdit(f"0:{config.POLARIZER_STAGE_MAX_ANGLE}:5")
+        self.edt_cal_angles.setToolTip(
+            f"Coarse polarizer scan range. Examples: 0:{config.POLARIZER_STAGE_MAX_ANGLE}:5 or 10,15,20"
+        )
+        layout.addWidget(self.edt_cal_angles, 9, 1, 1, 2)
+
+        layout.addWidget(QLabel("Calibration Exposure (us):"), 10, 0)
+        self.spin_cal_exp = QSpinBox()
+        self.spin_cal_exp.setRange(100, 1000000)
+        self.spin_cal_exp.setValue(config.XIMEA_DEFAULT_POLARIZER_CALIBRATION_EXPOSURE_US)
+        self.spin_cal_exp.setSingleStep(1000)
+        layout.addWidget(self.spin_cal_exp, 10, 1, 1, 2)
+
+        layout.addWidget(QLabel("Calibration Sample Angle:"), 11, 0)
+        self.spin_cal_sample_angle = QSpinBox()
+        self.spin_cal_sample_angle.setRange(config.SAMPLE_STAGE_MIN_ANGLE, config.SAMPLE_STAGE_MAX_ANGLE)
+        self.spin_cal_sample_angle.setValue(0)
+        layout.addWidget(self.spin_cal_sample_angle, 11, 1, 1, 2)
+
+        self.btn_calibrate_polarizer = QPushButton("RUN POLARIZER CALIBRATION")
+        self.btn_calibrate_polarizer.setStyleSheet("background-color: #607D8B; color: white; font-weight: bold; padding: 8px;")
+        self.btn_calibrate_polarizer.clicked.connect(self.on_start_polarizer_calibration)
+        layout.addWidget(self.btn_calibrate_polarizer, 12, 0, 1, 3)
+
+        self.lbl_calibration_result = QLabel("Baseline: loading...")
+        self.lbl_calibration_result.setWordWrap(True)
+        layout.addWidget(self.lbl_calibration_result, 13, 0, 1, 3)
 
         self.btn_start = QPushButton("START SEQUENCE")
         self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;")
         self.btn_start.clicked.connect(self.on_start_sequence)
-        layout.addWidget(self.btn_start, 7, 0, 1, 3)
+        layout.addWidget(self.btn_start, 14, 0, 1, 3)
         
         self.progress = QProgressBar()
-        layout.addWidget(self.progress, 8, 0, 1, 3)
+        layout.addWidget(self.progress, 15, 0, 1, 3)
         
         self.lbl_seq_status = QLabel("Idle")
-        layout.addWidget(self.lbl_seq_status, 9, 0, 1, 3)
+        layout.addWidget(self.lbl_seq_status, 16, 0, 1, 3)
         
         grp.setLayout(layout)
         return grp
@@ -469,18 +523,102 @@ class MainWindow(QMainWindow):
         self.lbl_cam_status.setText(f" | Camera: {status}")
         self.lbl_cam_status.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {color};")
 
+    def _get_polarizer_baseline_path(self):
+        return os.path.join(os.getcwd(), "data", "polarizer_baseline.json")
+
+    def _derive_ppl_angle(self, xpl_angle):
+        return utils.derive_ppl_angle_from_xpl(
+            xpl_angle,
+            config.POLARIZER_STAGE_MIN_ANGLE,
+            config.POLARIZER_STAGE_MAX_ANGLE,
+        )
+
+    def _apply_polarizer_baseline(self, xpl_angle, *, source, persist):
+        ppl_angle, ppl_offset = utils.choose_orthogonal_polarizer_angle(
+            xpl_angle,
+            config.POLARIZER_STAGE_MIN_ANGLE,
+            config.POLARIZER_STAGE_MAX_ANGLE,
+        )
+        config.POLARIZER_XPL_ANGLE_DEG = int(xpl_angle)
+        config.POLARIZER_PPL_ANGLE_DEG = int(ppl_angle)
+
+        self._syncing_polarizer_angles = True
+        try:
+            if hasattr(self, "spin_xpl_angle"):
+                self.spin_xpl_angle.blockSignals(True)
+                self.spin_xpl_angle.setValue(int(xpl_angle))
+                self.spin_xpl_angle.blockSignals(False)
+            if hasattr(self, "spin_ppl_angle"):
+                self.spin_ppl_angle.blockSignals(True)
+                self.spin_ppl_angle.setValue(int(ppl_angle))
+                self.spin_ppl_angle.blockSignals(False)
+            if hasattr(self, "lbl_calibration_result"):
+                self.lbl_calibration_result.setText(
+                    f"Baseline: XPL={int(xpl_angle)} deg, PPL={int(ppl_angle)} deg "
+                    f"(XPL{int(ppl_offset):+d}, {source})"
+                )
+        finally:
+            self._syncing_polarizer_angles = False
+
+        if persist:
+            payload = {
+                "saved_at": utils.get_timestamp_iso(),
+                "source": source,
+                "xpl_angle_deg": int(xpl_angle),
+                "ppl_angle_deg": int(ppl_angle),
+                "ppl_offset_deg": int(ppl_offset),
+            }
+            io.save_json(self._get_polarizer_baseline_path(), payload)
+
+    def _load_polarizer_baseline(self):
+        baseline_path = self._get_polarizer_baseline_path()
+        baseline = None
+        if os.path.isfile(baseline_path):
+            try:
+                with open(baseline_path, "r", encoding="utf-8") as f:
+                    baseline = json.load(f)
+            except Exception as e:
+                self.log(f"Failed to load polarizer baseline: {e}", "WARN")
+
+        if baseline and "xpl_angle_deg" in baseline:
+            try:
+                self._apply_polarizer_baseline(
+                    int(baseline["xpl_angle_deg"]),
+                    source="saved baseline",
+                    persist=False,
+                )
+                self.log(
+                    f"Loaded polarizer baseline: XPL={config.POLARIZER_XPL_ANGLE_DEG} deg, "
+                    f"PPL={config.POLARIZER_PPL_ANGLE_DEG} deg"
+                )
+                return
+            except Exception as e:
+                self.log(f"Saved polarizer baseline is invalid: {e}", "WARN")
+
+        self._apply_polarizer_baseline(
+            config.POLARIZER_XPL_ANGLE_DEG,
+            source="default baseline",
+            persist=False,
+        )
+
+    def _has_active_capture(self):
+        return (
+            (self.seq_thread is not None and self.seq_thread.isRunning())
+            or (self.calib_thread is not None and self.calib_thread.isRunning())
+        )
+
     def _refresh_camera_ui(self):
         camera_connected = self._is_camera_connected()
-        sequence_busy = self.seq_thread is not None and self.seq_thread.isRunning()
-        camera_controls_enabled = camera_connected and self.current_state != STATE_RUNNING and not sequence_busy
+        capture_busy = self._has_active_capture()
+        camera_controls_enabled = camera_connected and self.current_state != STATE_RUNNING and not capture_busy
         if getattr(self, "grp_camera", None):
             self.grp_camera.setEnabled(camera_controls_enabled)
         if getattr(self, "grp_live", None):
             self.grp_live.setEnabled(camera_controls_enabled)
         if getattr(self, "grp_conversion", None):
-            self.grp_conversion.setEnabled(not sequence_busy and self.current_state != STATE_RUNNING)
-        self.btn_cam_connect.setEnabled(self.current_state != STATE_RUNNING and not sequence_busy)
-        self.btn_connect.setEnabled(self.current_state != STATE_RUNNING and not sequence_busy)
+            self.grp_conversion.setEnabled(not capture_busy and self.current_state != STATE_RUNNING)
+        self.btn_cam_connect.setEnabled(self.current_state != STATE_RUNNING and not capture_busy)
+        self.btn_connect.setEnabled(self.current_state != STATE_RUNNING and not capture_busy)
 
     def _start_camera_thread(self):
         if self.cam_thread:
@@ -556,6 +694,8 @@ class MainWindow(QMainWindow):
         # 2. Logic ESTOP
         if self.seq_thread and self.seq_thread.isRunning():
             self.seq_thread.abort()
+        if self.calib_thread and self.calib_thread.isRunning():
+            self.calib_thread.abort()
             
         # 3. UI Latch
         self.update_state_ui(STATE_LATCHED)
@@ -566,13 +706,15 @@ class MainWindow(QMainWindow):
 
         # If Running Sequence, Ask User
         if self.current_state == STATE_RUNNING:
-            ans = QMessageBox.warning(self, "Abort?", "Sequence is running. Abort and Reset?", 
+            ans = QMessageBox.warning(self, "Abort?", "A capture is running. Abort and Reset?", 
                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if ans == QMessageBox.StandardButton.No:
                 return
             # If Yes, Abort logic first
             if self.seq_thread:
                 self.seq_thread.abort()
+            if self.calib_thread:
+                self.calib_thread.abort()
                 
         # Send Reset
         if self.ctrl.reset():
@@ -621,18 +763,28 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Camera Not Connected", "Connect the camera before starting a sequence.")
             return
         
-        do_crosspol = self.chk_crosspol.isChecked()
-        do_normal = self.chk_normal.isChecked()
-        if not (do_crosspol or do_normal):
-            QMessageBox.warning(self, "No Modes", "Enable at least one mode (Crosspol or Normal).")
+        do_xpl = self.chk_xpl.isChecked()
+        do_ppl = self.chk_ppl.isChecked()
+        if not (do_xpl or do_ppl):
+            QMessageBox.warning(self, "No Modes", "Enable at least one mode (XPL or PPL).")
             return
              
         save_dir = self.edt_save_dir.text()
         sid = self.edt_sample_id.text()
         settling = self.spin_settling.value()
-        exp_cross = self.spin_exp_cross.value()
-        exp_normal = self.spin_exp_normal.value()
-        angles, angle_err = self.parse_angles(self.edt_angles.text())
+        exp_xpl = self.spin_exp_xpl.value()
+        exp_ppl = self.spin_exp_ppl.value()
+        xpl_angle = self.spin_xpl_angle.value()
+        try:
+            ppl_angle = self._derive_ppl_angle(xpl_angle)
+        except ValueError as e:
+            QMessageBox.warning(self, "Invalid PPL Angle", str(e))
+            return
+        angles, angle_err = self.parse_angles(
+            self.edt_angles.text(),
+            config.SAMPLE_STAGE_MIN_ANGLE,
+            config.SAMPLE_STAGE_MAX_ANGLE,
+        )
         if not angles:
             msg = (
                 "Enter stage angles as comma/space list or range.\n"
@@ -662,11 +814,13 @@ class MainWindow(QMainWindow):
             self.sequence_logic, 
             save_dir, 
             sid, 
-            exp_cross,
-            exp_normal,
+            exp_xpl,
+            exp_ppl,
             angles,
-            do_crosspol,
-            do_normal,
+            do_xpl,
+            do_ppl,
+            xpl_angle,
+            ppl_angle,
             self.spin_exp.value(),
             self.spin_gain.value(),
             live_thread_was_running,
@@ -677,31 +831,109 @@ class MainWindow(QMainWindow):
         self.seq_thread.error_occurred.connect(self.on_seq_error)
         self.seq_thread.start()
 
+    def on_start_polarizer_calibration(self):
+        if self.current_state != STATE_ARMED:
+            QMessageBox.warning(self, "Not Armed", "System must be ARMED to run calibration.")
+            return
+        if not self._is_camera_connected():
+            QMessageBox.warning(self, "Camera Not Connected", "Connect the camera before running calibration.")
+            return
+
+        save_dir = self.edt_save_dir.text()
+        sid = self.edt_sample_id.text()
+        settling = self.spin_settling.value()
+        exposure_us = self.spin_cal_exp.value()
+        sample_angle = self.spin_cal_sample_angle.value()
+        polarizer_angles, angle_err = self.parse_angles(
+            self.edt_cal_angles.text(),
+            config.POLARIZER_STAGE_MIN_ANGLE,
+            config.POLARIZER_STAGE_MAX_ANGLE,
+        )
+        if not polarizer_angles:
+            msg = (
+                "Enter polarizer scan angles as comma/space list or range.\n"
+                f"Examples: 0,5,10 or 0:{config.POLARIZER_STAGE_MAX_ANGLE}:5"
+            )
+            if angle_err:
+                msg = f"{angle_err}\n\n{msg}"
+            QMessageBox.warning(self, "Invalid Polarizer Angles", msg)
+            return
+
+        config.SETTLING_TIME_S = settling
+        live_thread_was_running = self._stop_camera_thread()
+
+        self.update_state_ui(STATE_RUNNING)
+        self.lbl_seq_status.setText("Running polarizer calibration...")
+        self.log(f"Starting polarizer calibration for {sid}...")
+        self.lbl_live_overlay.show()
+        self.update_status_info()
+
+        self.calib_thread = PolarizerCalibrationThread(
+            self.sequence_logic,
+            save_dir,
+            sid,
+            exposure_us,
+            polarizer_angles,
+            sample_angle,
+            self.spin_exp.value(),
+            self.spin_gain.value(),
+            live_thread_was_running,
+        )
+        self.calib_thread.progress_update.connect(self.on_seq_progress_msg)
+        self.calib_thread.progress_val.connect(self.progress.setValue)
+        self.calib_thread.finished_ok.connect(self.on_polarizer_calibration_finished)
+        self.calib_thread.error_occurred.connect(self.on_polarizer_calibration_error)
+        self.calib_thread.start()
+
     def on_seq_progress_msg(self, msg):
         self.lbl_seq_status.setText(msg)
         self.log(msg)
 
     def on_seq_finished(self):
         self.log("Sequence Finished Successfully.")
-        self.restore_ui_after_sequence()
+        self.restore_ui_after_capture()
         
     def on_seq_error(self, err_msg):
         self.log(err_msg, "ERROR")
         QMessageBox.critical(self, "Sequence Error", err_msg)
-        self.restore_ui_after_sequence()
+        self.restore_ui_after_capture()
+
+    def on_polarizer_calibration_finished(self):
+        info = getattr(self.sequence_logic, "last_calibration_info", {}) or {}
+        xpl_angle = info.get("recommended_xpl_angle_deg")
+        if xpl_angle is not None:
+            try:
+                self._apply_polarizer_baseline(
+                    int(xpl_angle),
+                    source="calibration baseline",
+                    persist=True,
+                )
+            except ValueError as e:
+                self.lbl_calibration_result.setText(f"Baseline: calibration failed to apply ({e})")
+                self.log(f"Calibration baseline rejected: {e}", "ERROR")
+        else:
+            self.lbl_calibration_result.setText("Baseline: calibration completed, no recommendation")
+        self.log("Polarizer calibration finished successfully.")
+        self.restore_ui_after_capture()
+
+    def on_polarizer_calibration_error(self, err_msg):
+        self.log(err_msg, "ERROR")
+        QMessageBox.critical(self, "Polarizer Calibration Error", err_msg)
+        self.restore_ui_after_capture()
         
-    def restore_ui_after_sequence(self):
+    def restore_ui_after_capture(self):
         self.lbl_live_overlay.hide()
-        run_info = getattr(self.sequence_logic, "last_run_info", {}) or {}
+        run_info = getattr(self.sequence_logic, "last_capture_info", {}) or getattr(self.sequence_logic, "last_run_info", {}) or {}
         cleanup_error = run_info.get("cleanup_error")
         should_restart_live = run_info.get("should_restart_live", False)
 
         if cleanup_error:
-            self.log(f"Sequence cleanup failed: {cleanup_error}", "ERROR")
+            self.log(f"Capture cleanup failed: {cleanup_error}", "ERROR")
             self.update_state_ui(STATE_ERROR)
             self._set_camera_error_ui("Camera Error")
             self.lbl_seq_status.setText("Error")
             self.seq_thread = None
+            self.calib_thread = None
             return
 
         if should_restart_live:
@@ -715,6 +947,7 @@ class MainWindow(QMainWindow):
                 self._set_camera_error_ui("Camera Error")
                 self.lbl_seq_status.setText("Error")
                 self.seq_thread = None
+                self.calib_thread = None
                 return
         elif not self._is_camera_connected():
             self.btn_cam_connect.setText("Connect Camera")
@@ -727,6 +960,18 @@ class MainWindow(QMainWindow):
         self._refresh_camera_ui()
         self.lbl_seq_status.setText("Idle")
         self.seq_thread = None
+        self.calib_thread = None
+
+    def restore_ui_after_sequence(self):
+        self.restore_ui_after_capture()
+
+    def on_xpl_angle_changed(self, value):
+        if self._syncing_polarizer_angles:
+            return
+        try:
+            self._apply_polarizer_baseline(int(value), source="current session", persist=False)
+        except ValueError as e:
+            self.log(f"XPL angle update rejected: {e}", "WARN")
 
     def on_cam_apply(self):
         if self._is_camera_connected() and self.current_state != STATE_RUNNING:
@@ -883,21 +1128,25 @@ class MainWindow(QMainWindow):
         self.lbl_info.setText(f" | Pol: {pol} | Samp: {samp} | Exp: {exp} us | Gain: {gain} dB")
 
     def on_seq_mode_toggle(self):
-        if self.chk_crosspol.isChecked():
-            self.spin_exp_cross.setEnabled(True)
-            self.spin_exp_cross.setValue(self._exp_cross_last)
+        if self.chk_xpl.isChecked():
+            self.spin_exp_xpl.setEnabled(True)
+            self.spin_exp_xpl.setValue(self._exp_xpl_last)
+            self.spin_xpl_angle.setEnabled(True)
         else:
-            self._exp_cross_last = self.spin_exp_cross.value()
-            self.spin_exp_cross.setEnabled(False)
+            self._exp_xpl_last = self.spin_exp_xpl.value()
+            self.spin_exp_xpl.setEnabled(False)
+            self.spin_xpl_angle.setEnabled(False)
 
-        if self.chk_normal.isChecked():
-            self.spin_exp_normal.setEnabled(True)
-            self.spin_exp_normal.setValue(self._exp_normal_last)
+        if self.chk_ppl.isChecked():
+            self.spin_exp_ppl.setEnabled(True)
+            self.spin_exp_ppl.setValue(self._exp_ppl_last)
+            self.spin_ppl_angle.setEnabled(True)
         else:
-            self._exp_normal_last = self.spin_exp_normal.value()
-            self.spin_exp_normal.setEnabled(False)
+            self._exp_ppl_last = self.spin_exp_ppl.value()
+            self.spin_exp_ppl.setEnabled(False)
+            self.spin_ppl_angle.setEnabled(False)
 
-    def parse_angles(self, text):
+    def parse_angles(self, text, min_angle, max_angle):
         raw = text.strip()
         if not raw:
             return [], "Angles are empty."
@@ -917,14 +1166,13 @@ class MainWindow(QMainWindow):
                 if step == 0:
                     return [], f"Step cannot be 0 in '{p}'"
                 if (
-                    start < config.SAMPLE_STAGE_MIN_ANGLE
-                    or start > config.SAMPLE_STAGE_MAX_ANGLE
-                    or end < config.SAMPLE_STAGE_MIN_ANGLE
-                    or end > config.SAMPLE_STAGE_MAX_ANGLE
+                    start < min_angle
+                    or start > max_angle
+                    or end < min_angle
+                    or end > max_angle
                 ):
                     return [], (
-                        f"Range out of bounds ({config.SAMPLE_STAGE_MIN_ANGLE}-"
-                        f"{config.SAMPLE_STAGE_MAX_ANGLE}): '{p}'"
+                        f"Range out of bounds ({min_angle}-{max_angle}): '{p}'"
                     )
                 if step > 0:
                     rng = range(start, end + 1, step)
@@ -936,10 +1184,9 @@ class MainWindow(QMainWindow):
                     val = int(p)
                 except ValueError:
                     return [], f"Invalid angle token: '{p}'"
-                if val < config.SAMPLE_STAGE_MIN_ANGLE or val > config.SAMPLE_STAGE_MAX_ANGLE:
+                if val < min_angle or val > max_angle:
                     return [], (
-                        f"Angle out of bounds ({config.SAMPLE_STAGE_MIN_ANGLE}-"
-                        f"{config.SAMPLE_STAGE_MAX_ANGLE}): '{p}'"
+                        f"Angle out of bounds ({min_angle}-{max_angle}): '{p}'"
                     )
                 angles.append(val)
         if not angles:
@@ -986,8 +1233,9 @@ class MainWindow(QMainWindow):
         self.btn_pol_p45.setEnabled(enable_manual)
         self.btn_samp_p45.setEnabled(enable_manual)
         
-        sequence_busy = self.seq_thread is not None and self.seq_thread.isRunning()
-        self.btn_start.setEnabled(enable_start and self._is_camera_connected() and not sequence_busy)
+        capture_busy = self._has_active_capture()
+        self.btn_start.setEnabled(enable_start and self._is_camera_connected() and not capture_busy)
+        self.btn_calibrate_polarizer.setEnabled(enable_start and self._is_camera_connected() and not capture_busy)
         self._refresh_camera_ui()
 
     def on_cam_error(self, err_msg):
@@ -1015,6 +1263,9 @@ class MainWindow(QMainWindow):
         if self.seq_thread:
             self.seq_thread.abort()
             self.seq_thread.wait()
+        if self.calib_thread:
+            self.calib_thread.abort()
+            self.calib_thread.wait()
         
         # Stop Camera Thread
         self._stop_camera_thread()

@@ -68,7 +68,7 @@ Serial protocol:
   - `98000`: RESET / ARM
   - `99000`: ESTOP
   - `96000`: HOME
-  - `10090`: Polarizer to 90 degrees
+  - `10095`: Polarizer to 95 degrees
   - `11045`: Sample to 45 degrees
 
 ## 5. Power and Wiring Architecture
@@ -141,14 +141,14 @@ In practice, this means the commanded angle sent by software may not match the t
 Current implementation status:
 
 - Both axes use an image-derived calibration ratio in Python
-- The current calibration dataset is `data/calibrationsample/normal`
+- The current calibration dataset should be a PPL reference capture set under `data/calibrationsample/`
 - The current polarizer-stage and sample-stage stage-to-servo ratio is `1.059`
 - This corresponds to an effective measured stage response of about `0.944 x commanded_angle`
 - With the current `0-180` servo command range, the current software limit is `169 deg` per stage
 
 Because the calibrated ratio is greater than `1.0`, the maximum stage angle is still lower than the maximum raw servo command. With the current settings, `169 deg` is the largest stage angle that still maps inside the `0-180` servo command range.
 
-For the cross-polarized crystallinity imaging workflow targeted by this build, the required operating states fall within a limited angular working envelope. For that reason, a compact servo-driven transmission was appropriate for the current system architecture.
+For the PPL/XPL crystallinity imaging workflow targeted by this build, the required operating states fall within a limited angular working envelope. For that reason, a compact servo-driven transmission was appropriate for the current system architecture.
 
 If a future version needs reliable travel well beyond this range, the preferred upgrade paths are:
 
@@ -260,11 +260,11 @@ Regulator VOUT/GND
 ### Step 6. Run Stage Calibration
 
 1. Place a calibration target or asymmetric sample on the stage being calibrated.
-2. Capture a `normal` sequence across known commanded angles such as `0, 15, 30, ...`.
+2. Capture a `PPL` sequence across known commanded angles such as `0, 15, 30, ...`.
 3. Run:
 
 ```bash
-python scripts/analyze_stage_calibration.py data/calibrationsample/normal
+python scripts/analyze_stage_calibration.py data/calibrationsample/<ppl_reference_set>
 ```
 
 4. Review the reported `Recommended stage_to_servo_ratio`.
@@ -293,11 +293,11 @@ Practical implications:
 
 The Python sequence controller uses the hardware as follows:
 
-- Crosspol mode:
-  - Polarizer = 90 degrees
+- XPL mode:
+  - Polarizer = 95 degrees in the current baseline
   - Sample = stepped through multiple angles
-- Normal mode:
-  - Polarizer = 0 degrees
+- PPL mode:
+  - Polarizer = 5 degrees in the current baseline
   - Sample = stepped through multiple angles
 
 Default sample angle example:
@@ -318,13 +318,18 @@ For the current XIMEA-based acquisition setup:
 - Camera gamma should remain fixed at `1.0`
 - Auto white balance should remain disabled during capture
 - The current fixed white-balance baseline is `R=1.40`, `G=1.00`, `B=1.20`
-- The same fixed white-balance values should be used for both Normal and Crosspol images so color differences remain comparable across modes
+- The same fixed white-balance values should be used for both PPL and XPL images so color differences remain comparable across modes
 - Re-evaluate the fixed white-balance values if the illumination path, optics, or analyzer/polarizer alignment changes
 - Live preview should use `XI_RGB24`
 - Sequence capture should use `XI_RAW16`
 - The current validated sequence exposure baseline is:
-  - Normal / PPL: `18000 us`
-  - Crosspol / XPL: `50000 us`
+  - PPL: `18000 us`
+  - XPL: `500000 us`
+- The current default polarizer baseline is:
+  - PPL: `5 deg`
+  - XPL: `95 deg`
+- Polarizer-angle calibration should use a separate default exposure baseline:
+  - Polarizer calibration scan: `200000 us`
 - Sequence outputs should be saved as Bayer RAW `uint16 TIFF` plus per-sequence CSV and JSON metadata
 
 ## 11. Verification Checklist

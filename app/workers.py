@@ -476,11 +476,13 @@ class SequenceThread(QThread):
         sequence_logic,
         save_dir,
         sample_id,
-        exp_crosspol,
-        exp_normal,
+        exp_xpl,
+        exp_ppl,
         angles,
-        do_crosspol,
-        do_normal,
+        do_xpl,
+        do_ppl,
+        xpl_angle,
+        ppl_angle,
         live_exposure_us,
         live_gain_db,
         live_thread_was_running,
@@ -489,11 +491,13 @@ class SequenceThread(QThread):
         self.seq = sequence_logic
         self.save_dir = save_dir
         self.sample_id = sample_id
-        self.exp_crosspol = exp_crosspol
-        self.exp_normal = exp_normal
+        self.exp_xpl = exp_xpl
+        self.exp_ppl = exp_ppl
         self.angles = angles
-        self.do_crosspol = do_crosspol
-        self.do_normal = do_normal
+        self.do_xpl = do_xpl
+        self.do_ppl = do_ppl
+        self.xpl_angle = xpl_angle
+        self.ppl_angle = ppl_angle
         self.live_exposure_us = live_exposure_us
         self.live_gain_db = live_gain_db
         self.live_thread_was_running = live_thread_was_running
@@ -502,7 +506,7 @@ class SequenceThread(QThread):
         self.seq.log_cb = self._on_log
         
         # Calculate total steps for progress bar
-        phase_count = int(self.do_crosspol) + int(self.do_normal)
+        phase_count = int(self.do_xpl) + int(self.do_ppl)
         self.total_steps = max(1, len(self.angles) * phase_count)
         self.current_step = 0
 
@@ -521,11 +525,13 @@ class SequenceThread(QThread):
             self.seq.run_sequence(
                 self.save_dir, 
                 self.sample_id, 
-                self.exp_crosspol, 
-                self.exp_normal,
+                self.exp_xpl, 
+                self.exp_ppl,
                 self.angles,
-                self.do_crosspol,
-                self.do_normal,
+                self.do_xpl,
+                self.do_ppl,
+                self.xpl_angle,
+                self.ppl_angle,
                 live_exposure_us=self.live_exposure_us,
                 live_gain_db=self.live_gain_db,
                 live_thread_was_running=self.live_thread_was_running,
@@ -538,6 +544,79 @@ class SequenceThread(QThread):
             
         except Exception as e:
             self.error_occurred.emit(f"Sequence Error: {str(e)}")
+
+    def abort(self):
+        self.seq.abort()
+
+
+class PolarizerCalibrationThread(QThread):
+    progress_update = pyqtSignal(str)
+    progress_val = pyqtSignal(int)
+    finished_ok = pyqtSignal()
+    error_occurred = pyqtSignal(str)
+
+    def __init__(
+        self,
+        sequence_logic,
+        save_dir,
+        sample_id,
+        exposure_us,
+        polarizer_angles,
+        sample_angle,
+        live_exposure_us,
+        live_gain_db,
+        live_thread_was_running,
+    ):
+        super().__init__()
+        self.seq = sequence_logic
+        self.save_dir = save_dir
+        self.sample_id = sample_id
+        self.exposure_us = exposure_us
+        self.polarizer_angles = polarizer_angles
+        self.sample_angle = sample_angle
+        self.live_exposure_us = live_exposure_us
+        self.live_gain_db = live_gain_db
+        self.live_thread_was_running = live_thread_was_running
+
+        self.seq.log_cb = self._on_log
+
+        self.total_steps = max(
+            1,
+            len(self.polarizer_angles)
+            + (config.POLARIZER_CALIBRATION_FINE_RADIUS_DEG * 2)
+            + 1,
+        )
+        self.current_step = 0
+
+    def _on_log(self, msg):
+        self.progress_update.emit(msg)
+        if "Polarizer Calibration " in msg and "Angle" in msg:
+            self.current_step += 1
+            pct = int((self.current_step / self.total_steps) * 100)
+            self.progress_val.emit(pct)
+
+    def run(self):
+        try:
+            self.current_step = 0
+            self.progress_val.emit(0)
+            self.seq.run_polarizer_calibration(
+                self.save_dir,
+                self.sample_id,
+                self.exposure_us,
+                self.polarizer_angles,
+                sample_angle=self.sample_angle,
+                live_exposure_us=self.live_exposure_us,
+                live_gain_db=self.live_gain_db,
+                live_thread_was_running=self.live_thread_was_running,
+            )
+            self.progress_val.emit(100)
+            self.finished_ok.emit()
+
+        except InterruptedError:
+            self.error_occurred.emit("Polarizer calibration aborted by user")
+
+        except Exception as e:
+            self.error_occurred.emit(f"Polarizer Calibration Error: {str(e)}")
 
     def abort(self):
         self.seq.abort()

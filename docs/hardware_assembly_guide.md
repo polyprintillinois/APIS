@@ -79,7 +79,7 @@ The system is assembled as a vertical stack of floors.
 - `polarizer_stage_gear` sits above the second-floor support
 - The stage holds the circular polarizer film
 - A SG90-mounted `servo_gear` meshes with the `polarizer_stage_gear`
-- A second polarizer is mounted in front of the camera lens so the system can operate in cross-polarization mode
+- A second polarizer is mounted in front of the camera lens so the system can operate in XPL mode
 
 ### Third Floor
 
@@ -169,13 +169,13 @@ The motion path is:
 
 The large gears carry the functional stage bodies, while the small gears are mounted directly to the servo shafts.
 
-For cross-polarization imaging:
+For XPL imaging:
 
 - One polarizer is mounted in `polarizer_stage_gear`
 - A second polarizer is mounted in front of the camera lens and acts as the analyzer
-- Cross-polarization is produced by the relative orientation between the stage polarizer and the lens-side analyzer
+- XPL is produced by the relative orientation between the stage polarizer and the lens-side analyzer
 
-For the cross-polarized crystallinity imaging workflow targeted by this build, the required operating states fit within a limited angular working envelope, so the present servo-driven gear train is appropriate for the current assembly.
+For the PPL/XPL crystallinity imaging workflow targeted by this build, the required operating states fit within a limited angular working envelope, so the present servo-driven gear train is appropriate for the current assembly.
 
 ## 11. Assembly Checks
 

@@ -63,7 +63,7 @@ def append_to_log(log_path, data_dict):
     fieldnames = [
         "timestamp", "mode", "exposure_us", "gain", 
         "polarizer_angle", "sample_angle", "filepath", 
-        "arduino_response", "attempt_count"
+        "arduino_response", "attempt_count", "signal_mean"
     ]
     
     try:
