@@ -17,7 +17,7 @@ This release updates the polarization workflow around `PPL/XPL`, adds a reusable
 
 - Default validated acquisition baseline:
   - `PPL`: `18000 us` at polarizer `5 deg`
-  - `XPL`: `500000 us` at polarizer `95 deg`
+  - `XPL`: `400000 us` at polarizer `95 deg`
 - Default polarizer calibration exposure:
   - `200000 us`
 - `PPL` is no longer chosen from a brightness search; it is derived from the reachable orthogonal angle relative to `XPL`.

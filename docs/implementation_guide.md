@@ -324,7 +324,7 @@ For the current XIMEA-based acquisition setup:
 - Sequence capture should use `XI_RAW16`
 - The current validated sequence exposure baseline is:
   - PPL: `18000 us`
-  - XPL: `500000 us`
+  - XPL: `400000 us`
 - The current default polarizer baseline is:
   - PPL: `5 deg`
   - XPL: `95 deg`

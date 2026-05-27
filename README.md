@@ -155,7 +155,7 @@ If you are assembling the hardware from scratch, complete the mechanical assembl
 ### Sequence Control
 - Set Save Directory and Sample ID
 - Choose modes: XPL / PPL
-- Set exposures (defaults: XPL `500000 us`, PPL `18000 us`)
+- Set exposures (defaults: XPL `400000 us`, PPL `18000 us`)
 - Set `XPL Polarizer Angle`; `PPL Polarizer Angle` is derived automatically from `XPL + 90 deg` or `XPL - 90 deg`, whichever stays inside the reachable polarizer range
 - Set angles (list or range, within the calibrated software range)
   - List: `90,60,45,30,0`

@@ -19,7 +19,7 @@
 ## 4) Sequence Smoke Test
 - Set Sample ID and Save Directory
 - Run a short sequence
-- Default sequence baseline: PPL `18000 us` @ `5 deg`, XPL `500000 us` @ `95 deg`
+- Default sequence baseline: PPL `18000 us` @ `5 deg`, XPL `400000 us` @ `95 deg`
 - Default polarizer calibration baseline: `200000 us`
 - Verify RAW16 TIFF images, `{SampleID}/{SampleID}_log.csv`, and `{SampleID}/{SampleID}_metadata.json` are created
 - Verify live view returns after the sequence finishes

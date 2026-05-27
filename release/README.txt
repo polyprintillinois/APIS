@@ -17,7 +17,7 @@ Notes
 - If the camera is not detected, verify XIMEA drivers are installed.
 - Live view and Snapshot use RGB preview output.
 - Sequence capture uses RAW16 TIFF output with per-sequence CSV and JSON metadata.
-- Default acquisition baseline: PPL = polarizer 5 deg @ 18000 us, XPL = polarizer 95 deg @ 500000 us.
+- Default acquisition baseline: PPL = polarizer 5 deg @ 18000 us, XPL = polarizer 95 deg @ 400000 us.
 - Default polarizer calibration scan baseline: 200000 us.
 - Current XIMEA capture baseline uses fixed white balance: R=1.40, G=1.00, B=1.20.
 - The app also includes a RAW16 to RGB preview conversion tool for saved datasets.
