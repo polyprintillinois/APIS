@@ -2,33 +2,22 @@
 
 ## Summary
 
-This release simplifies the packaged distribution to the APIS app and improves XPL acquisition stability with adaptive top/bottom background ROI selection.
+This release updates the XPL calibration/search workflow so APIS can handle film that is not centered vertically, and tightens the app UI around the sequence controls.
 
-## Added
+## Changed Since v0.1.3
 
-- Adaptive local XPL search now checks both the top and bottom background ROIs:
-  - bottom: `x=700, y=1000, width=700, height=80 px`
-  - top: `x=700, y=0, width=700, height=80 px`
-- Calibration metadata records both ROI signals, the selected ROI, and the confirmation result.
-- CSV logs store calibration-specific details in `details_json`.
-- `scripts/test_adaptive_xpl_search.py` now mirrors the app's top/bottom ROI search, with legacy single-ROI mode available via `--roi-y`.
-
-## Changed
-
-- Polarizer calibration now reuses the same adaptive local XPL search path used before XPL sequence capture.
-- Polarizer calibration uses a single XPL-style exposure setting instead of separate coarse/fine exposure controls.
-- The confirmation threshold is now `<=65` ROI mean while still requiring `<=1.2x` of the selected scan minimum.
+- Local XPL search now checks both background ROIs during the coarse scan:
+  - bottom ROI: `x=700, y=1000, width=700, height=80 px`
+  - top ROI: `x=700, y=0, width=700, height=80 px`
+- Fine XPL search and confirmation now focus on whichever ROI produced the darker signal.
+- XPL confirmation now requires ROI mean `<=65` and `<=1.2x` of the selected scan minimum.
+- Polarizer calibration now uses the same adaptive local XPL search path as sequence capture.
+- Polarizer calibration now uses one calibration exposure setting instead of separate coarse/fine exposure settings.
+- Calibration metadata and CSV logs now include structured detail for top/bottom ROI readings, selected ROI, and confirmation results.
 - Sequence XPL capture starts from `HOME`, moves the sample stage to `0 deg`, runs adaptive XPL search, then keeps the selected polarizer angle fixed while imaging.
 - Sequence cleanup returns the sample stage to `0 deg` without homing/resetting the polarizer.
-- Long calibration status messages no longer resize the app window; full messages remain available in the log and status tooltip.
-- The packaged release now contains only the APIS app plus release documentation.
-- RAW16 preview conversion remains available inside the APIS app for the selected folder and its immediate child folders.
-
-## Removed
-
-- Removed the separate packaged batch RAW16 conversion executable.
-- Removed the polarizer repeatability diagnostic executable/script.
-- Removed obsolete coarse/fine polarizer calibration API naming.
+- Long calibration/status messages no longer resize the app window; full text remains available through the log and tooltip.
+- Sequence control button sizing was adjusted so labels such as `START SEQUENCE` do not clip at the default window size.
 
 ## Validation
 
@@ -39,4 +28,5 @@ This release simplifies the packaged distribution to the APIS app and improves X
 ## Notes
 
 - Sequence capture remains `RAW16` only.
+- RAW16 preview conversion remains available inside the APIS app.
 - Reusing the same `SampleID` may append to the existing CSV log.
