@@ -353,6 +353,11 @@ class MainWindow(QMainWindow):
     def create_sequence_group(self):
         grp = QGroupBox("Sequence Control")
         layout = QGridLayout()
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(5)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnMinimumWidth(2, 48)
         
         layout.addWidget(QLabel("Save Directory:"), 0, 0)
         self.edt_save_dir = QLineEdit(os.path.join(os.getcwd(), "data"))
@@ -379,28 +384,28 @@ class MainWindow(QMainWindow):
         modes_widget.setLayout(modes_box)
         layout.addWidget(modes_widget, 2, 1, 1, 2)
         
-        layout.addWidget(QLabel("XPL Exposure (us):"), 3, 0)
+        layout.addWidget(QLabel("XPL Exp. (us):"), 3, 0)
         self.spin_exp_xpl = QSpinBox()
         self.spin_exp_xpl.setRange(100, 1000000)
         self.spin_exp_xpl.setValue(config.XIMEA_DEFAULT_XPL_EXPOSURE_US)
         self.spin_exp_xpl.setSingleStep(1000)
         layout.addWidget(self.spin_exp_xpl, 3, 1, 1, 2)
         
-        layout.addWidget(QLabel("PPL Exposure (us):"), 4, 0)
+        layout.addWidget(QLabel("PPL Exp. (us):"), 4, 0)
         self.spin_exp_ppl = QSpinBox()
         self.spin_exp_ppl.setRange(100, 1000000)
         self.spin_exp_ppl.setValue(config.XIMEA_DEFAULT_PPL_EXPOSURE_US)
         self.spin_exp_ppl.setSingleStep(1000)
         layout.addWidget(self.spin_exp_ppl, 4, 1, 1, 2)
 
-        layout.addWidget(QLabel("XPL Polarizer Angle (deg):"), 5, 0)
+        layout.addWidget(QLabel("XPL Pol. Angle:"), 5, 0)
         self.spin_xpl_angle = QSpinBox()
         self.spin_xpl_angle.setRange(config.POLARIZER_STAGE_MIN_ANGLE, config.POLARIZER_STAGE_MAX_ANGLE)
         self.spin_xpl_angle.setValue(config.POLARIZER_XPL_ANGLE_DEG)
         self.spin_xpl_angle.valueChanged.connect(self.on_xpl_angle_changed)
         layout.addWidget(self.spin_xpl_angle, 5, 1, 1, 2)
 
-        layout.addWidget(QLabel("PPL Polarizer Angle (deg):"), 6, 0)
+        layout.addWidget(QLabel("PPL Pol. Angle:"), 6, 0)
         self.spin_ppl_angle = QSpinBox()
         self.spin_ppl_angle.setRange(config.POLARIZER_STAGE_MIN_ANGLE, config.POLARIZER_STAGE_MAX_ANGLE)
         self.spin_ppl_angle.setValue(config.POLARIZER_PPL_ANGLE_DEG)
@@ -408,41 +413,43 @@ class MainWindow(QMainWindow):
         self.spin_ppl_angle.setToolTip("Derived automatically from XPL as a reachable orthogonal angle (XPL +/- 90 deg).")
         layout.addWidget(self.spin_ppl_angle, 6, 1, 1, 2)
         
-        layout.addWidget(QLabel("Sample Angles (stage deg):"), 7, 0)
+        layout.addWidget(QLabel("Sample Angles:"), 7, 0)
         self.edt_angles = QLineEdit("90,60,45,30,0")
         self.edt_angles.setToolTip(
             f"List or range. Examples: 0,30,60 or 0:{config.SAMPLE_STAGE_MAX_ANGLE}:15"
         )
         layout.addWidget(self.edt_angles, 7, 1, 1, 2)
         
-        layout.addWidget(QLabel("Settling Time (s, motor settle):"), 8, 0)
+        layout.addWidget(QLabel("Settle Time (s):"), 8, 0)
         self.spin_settling = QDoubleSpinBox()
         self.spin_settling.setRange(0.1, 10.0)
         self.spin_settling.setValue(config.SETTLING_TIME_S)
         layout.addWidget(self.spin_settling, 8, 1)
 
-        layout.addWidget(QLabel("Calibration Scan (pol deg):"), 9, 0)
+        layout.addWidget(QLabel("Cal. Scan:"), 9, 0)
         self.edt_cal_angles = QLineEdit(f"0:{config.POLARIZER_STAGE_MAX_ANGLE}:5")
         self.edt_cal_angles.setToolTip(
             f"Coarse polarizer scan range. Examples: 0:{config.POLARIZER_STAGE_MAX_ANGLE}:5 or 10,15,20"
         )
         layout.addWidget(self.edt_cal_angles, 9, 1, 1, 2)
 
-        layout.addWidget(QLabel("Calibration Exposure (us):"), 10, 0)
+        layout.addWidget(QLabel("Cal. Exp. (us):"), 10, 0)
         self.spin_cal_exp = QSpinBox()
         self.spin_cal_exp.setRange(100, 1000000)
         self.spin_cal_exp.setValue(config.XIMEA_DEFAULT_POLARIZER_CALIBRATION_EXPOSURE_US)
         self.spin_cal_exp.setSingleStep(1000)
         layout.addWidget(self.spin_cal_exp, 10, 1, 1, 2)
 
-        layout.addWidget(QLabel("Calibration Sample Angle:"), 11, 0)
+        layout.addWidget(QLabel("Cal. Sample:"), 11, 0)
         self.spin_cal_sample_angle = QSpinBox()
         self.spin_cal_sample_angle.setRange(config.SAMPLE_STAGE_MIN_ANGLE, config.SAMPLE_STAGE_MAX_ANGLE)
         self.spin_cal_sample_angle.setValue(0)
         layout.addWidget(self.spin_cal_sample_angle, 11, 1, 1, 2)
 
         self.btn_calibrate_polarizer = QPushButton("RUN POLARIZER CALIBRATION")
-        self.btn_calibrate_polarizer.setStyleSheet("background-color: #607D8B; color: white; font-weight: bold; padding: 8px;")
+        self.btn_calibrate_polarizer.setMinimumHeight(32)
+        self.btn_calibrate_polarizer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.btn_calibrate_polarizer.setStyleSheet("background-color: #607D8B; color: white; font-weight: bold; padding: 4px 8px;")
         self.btn_calibrate_polarizer.clicked.connect(self.on_start_polarizer_calibration)
         layout.addWidget(self.btn_calibrate_polarizer, 12, 0, 1, 3)
 
@@ -452,7 +459,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lbl_calibration_result, 13, 0, 1, 3)
 
         self.btn_start = QPushButton("START SEQUENCE")
-        self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;")
+        self.btn_start.setMinimumHeight(34)
+        self.btn_start.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px 8px;")
         self.btn_start.clicked.connect(self.on_start_sequence)
         layout.addWidget(self.btn_start, 15, 0, 1, 3)
         
