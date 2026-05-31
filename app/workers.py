@@ -45,11 +45,6 @@ class DummyCamera:
 
     def stop_acquisition(self):
         self._streaming = False
-        if self.is_open:
-            try:
-                self._cam.stop_acquisition()
-            except Exception:
-                pass
 
     def set_exposure(self, us):
         self.exposure_us = us
@@ -560,7 +555,7 @@ class PolarizerCalibrationThread(QThread):
         sequence_logic,
         save_dir,
         sample_id,
-        exposure_us,
+        calibration_exposure_us,
         polarizer_angles,
         sample_angle,
         live_exposure_us,
@@ -571,7 +566,7 @@ class PolarizerCalibrationThread(QThread):
         self.seq = sequence_logic
         self.save_dir = save_dir
         self.sample_id = sample_id
-        self.exposure_us = exposure_us
+        self.calibration_exposure_us = calibration_exposure_us
         self.polarizer_angles = polarizer_angles
         self.sample_angle = sample_angle
         self.live_exposure_us = live_exposure_us
@@ -583,14 +578,28 @@ class PolarizerCalibrationThread(QThread):
         self.total_steps = max(
             1,
             len(self.polarizer_angles)
-            + (config.POLARIZER_CALIBRATION_FINE_RADIUS_DEG * 2)
-            + 1,
+            + int(config.XPL_LOCAL_FINE_MAX_SPAN_DEG / config.XPL_LOCAL_CALIBRATION_STEP_DEG)
+            + 1
+            + (
+                int(config.XPL_LOCAL_CONFIRMATION_MAX_REFINES)
+                * (
+                    int(
+                        config.XPL_LOCAL_CONFIRMATION_REFINE_RADIUS_DEG
+                        * 2
+                        / config.XPL_LOCAL_CALIBRATION_STEP_DEG
+                    )
+                    + 1
+                )
+            ),
         )
         self.current_step = 0
 
     def _on_log(self, msg):
         self.progress_update.emit(msg)
-        if "Polarizer Calibration " in msg and "Angle" in msg:
+        if (
+            ("Polarizer Calibration " in msg or "Local XPL Calibration " in msg)
+            and "Angle" in msg
+        ):
             self.current_step += 1
             pct = int((self.current_step / self.total_steps) * 100)
             self.progress_val.emit(pct)
@@ -602,7 +611,7 @@ class PolarizerCalibrationThread(QThread):
             self.seq.run_polarizer_calibration(
                 self.save_dir,
                 self.sample_id,
-                self.exposure_us,
+                self.calibration_exposure_us,
                 self.polarizer_angles,
                 sample_angle=self.sample_angle,
                 live_exposure_us=self.live_exposure_us,

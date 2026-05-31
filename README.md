@@ -161,9 +161,13 @@ If you are assembling the hardware from scratch, complete the mechanical assembl
   - List: `90,60,45,30,0`
   - Range: `0:169:15`
 - Settling Time: motor settle delay after each move
-- Polarizer calibration scan: capture `0:169:5` by default at `200000 us`, find the darkest coarse angle, then rescan `-10..+10 deg` around it at `1 deg` steps to set XPL
+- Polarizer calibration scan: use the same adaptive local XPL search used before sequence capture. The scan checks the configured coarse polarizer angles at the XPL exposure, watches both top and bottom background ROIs, then fine-scans from the trigger region to set XPL.
 - PPL baseline is derived automatically from `XPL + 90 deg` or `XPL - 90 deg`, whichever is reachable
 - The calibrated XPL/PPL baseline is saved and reused on later app launches
+- Before XPL sequence capture, APIS starts from `HOME`, moves the sample stage to `0 deg`, then runs adaptive background-ROI XPL search using bottom ROI `x=700, y=1000, width=700, height=80 px` and top ROI `x=700, y=0, width=700, height=80 px`
+- Adaptive XPL search scans `90,100,110,120,130,140,150 deg` until either ROI mean reaches `<=80`, focuses fine/confirmation on the darker triggered ROI, then scans forward at `1 deg` steps from the previous coarse angle until the darkness trend reverses; XPL capture proceeds only when confirmation ROI mean is `<=65` and within `1.2x` of the selected scan minimum
+- After XPL is confirmed, XPL captures rotate only the sample stage while keeping the selected polarizer angle fixed
+- Sequence cleanup returns the sample stage to `0 deg` and does not home/reset the polarizer
 - Sequence capture uses `XI_RAW16` only
 - During sequence capture, live view is paused and restored after completion
 - Sequence images are saved as Bayer RAW `uint16 TIFF` without demosaicing or gamma

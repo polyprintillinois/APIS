@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.1.3"
+    [string]$Version = "0.1.4"
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,8 +33,10 @@ function Invoke-WithRetry {
 }
 
 Write-Host "[APIS] Building with PyInstaller spec..."
+if (Test-Path (Join-Path $root "dist")) {
+    Remove-Item (Join-Path $root "dist") -Recurse -Force
+}
 & $py -m PyInstaller --noconfirm --clean build\apis.spec
-& $py -m PyInstaller --noconfirm --clean build\check_hardware.spec
 
 $releaseDir = Join-Path $root "release"
 New-Item -ItemType Directory -Force $releaseDir | Out-Null
@@ -55,7 +57,6 @@ New-Item -ItemType Directory -Force $stageDir | Out-Null
 try {
     $stageItems = @(
         "dist\APIS",
-        "dist\check_hardware",
         "release\README.txt",
         "release\prereq_checklist.md"
     )

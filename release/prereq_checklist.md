@@ -11,7 +11,7 @@
 - Confirm the camera stream looks reasonable with the fixed white-balance baseline used by the app
 
 ## 3) Arduino / Motor Check
-- Run `check_hardware.exe` to validate the Arduino COM port (motor controller)
+- Connect the Arduino from the APIS app
 - Press RESET / ARM
 - Move Polarizer and Sample manually
 - Press ESTOP and confirm torque release, then RESET
@@ -20,7 +20,7 @@
 - Set Sample ID and Save Directory
 - Run a short sequence
 - Default sequence baseline: PPL `18000 us` @ `5 deg`, XPL `400000 us` @ `95 deg`
-- Default polarizer calibration baseline: `200000 us`
+- Default polarizer calibration baseline: adaptive local XPL search at `400000 us`, using top/bottom background ROIs
 - Verify RAW16 TIFF images, `{SampleID}/{SampleID}_log.csv`, and `{SampleID}/{SampleID}_metadata.json` are created
 - Verify live view returns after the sequence finishes
 

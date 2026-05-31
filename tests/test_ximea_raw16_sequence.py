@@ -68,6 +68,7 @@ class FakeSequenceCamera:
         self.live_mode_calls = []
         self.sequence_mode_calls = 0
         self.mode = "live"
+        self.exposure_calls = []
 
     def configure_live_mode(self, exposure_us, gain_db):
         if self.fail_live_restore:
@@ -105,6 +106,7 @@ class FakeSequenceCamera:
 
     def set_exposure(self, exposure_us):
         self.exposure_us = exposure_us
+        self.exposure_calls.append(exposure_us)
 
     def set_gain(self, gain_db):
         self.gain = gain_db
@@ -131,6 +133,20 @@ class AngleAwareCalibrationCamera(FakeSequenceCamera):
         self.capture_count += 1
         intensity = ((self.current_polarizer_angle - 40) ** 2) + self.current_polarizer_angle + 100
         return np.full((6, 8), intensity, dtype=np.uint16)
+
+
+class SplitRoiCalibrationCamera(FakeSequenceCamera):
+    def __init__(self):
+        super().__init__()
+        self.current_polarizer_angle = 0
+
+    def capture(self):
+        self.capture_count += 1
+        img = np.full((6, 8), 900, dtype=np.uint16)
+        top_intensity = ((self.current_polarizer_angle - 40) ** 2) + 20
+        img[0:2, 1:5] = top_intensity
+        img[3:5, 1:5] = 500
+        return img
 
 
 class FakeXiCamera:
@@ -309,24 +325,54 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def local_xpl_test_config(
+        self,
+        coarse_angles=None,
+        coarse_trigger_mean=1000.0,
+        fine_max_span_deg=2,
+    ):
+        if coarse_angles is None:
+            coarse_angles = [94, 95, 96]
+        return patch.multiple(
+            config,
+            XPL_BACKGROUND_ROI_X=1,
+            XPL_BACKGROUND_ROI_TOP_Y=0,
+            XPL_BACKGROUND_ROI_BOTTOM_Y=1,
+            XPL_BACKGROUND_ROI_WIDTH=4,
+            XPL_BACKGROUND_ROI_HEIGHT=3,
+            XPL_ADAPTIVE_COARSE_ANGLES_DEG=coarse_angles,
+            XPL_LOCAL_COARSE_TRIGGER_MEAN=coarse_trigger_mean,
+            XPL_LOCAL_CALIBRATION_RADIUS_DEG=1,
+            XPL_LOCAL_CALIBRATION_STEP_DEG=1,
+            XPL_LOCAL_FINE_MAX_SPAN_DEG=fine_max_span_deg,
+            XPL_LOCAL_FINE_STOP_INCREASE_COUNT=2,
+            XPL_LOCAL_FINE_STOP_RATIO=1.2,
+            XPL_LOCAL_CALIBRATION_FINAL_APPROACH_OFFSET_DEG=1,
+            XPL_LOCAL_CONFIRMATION_MAX_MEAN=1000.0,
+            XPL_LOCAL_CONFIRMATION_MAX_RATIO=10.0,
+            XPL_LOCAL_CONFIRMATION_REFINE_RADIUS_DEG=1,
+            XPL_LOCAL_CONFIRMATION_MAX_REFINES=1,
+        )
+
     def test_sequence_writes_uint16_tiff_and_metadata(self):
         ctrl = FakeController()
         cam = FakeSequenceCamera()
         seq = PicsSequence(ctrl, cam)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            seq.run_sequence(
-                tmpdir,
-                "sample1",
-                50000,
-                12000,
-                sample_angles=[0, 10],
-                do_xpl=True,
-                do_ppl=False,
-                live_exposure_us=12000,
-                live_gain_db=0.5,
-                live_thread_was_running=True,
-            )
+            with self.local_xpl_test_config():
+                seq.run_sequence(
+                    tmpdir,
+                    "sample1",
+                    50000,
+                    12000,
+                    sample_angles=[0, 10],
+                    do_xpl=True,
+                    do_ppl=False,
+                    live_exposure_us=12000,
+                    live_gain_db=0.5,
+                    live_thread_was_running=True,
+                )
 
             image_path = os.path.join(tmpdir, "sample1", "xpl", "sample1_xpl_000.tif")
             metadata_path = os.path.join(tmpdir, "sample1", "sample1_metadata.json")
@@ -343,13 +389,114 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
             self.assertEqual(metadata["imgdataformat"], "XI_RAW16")
             self.assertEqual(metadata["gain_db"], 0.0)
             self.assertEqual(len(metadata["images"]), 2)
+            self.assertEqual(len(metadata["local_xpl_calibrations"]), 1)
             self.assertEqual(metadata["cleanup_error"], "")
+            self.assertEqual(ctrl.home_calls, 1)
 
             with open(csv_path, newline="", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
-            self.assertEqual(len(rows), 2)
-            self.assertEqual(rows[0]["gain"], "0.0")
+            self.assertEqual(len(rows), 7)
+            self.assertEqual(rows[-2]["gain"], "0.0")
             self.assertEqual(cam.live_mode_calls[-1], (12000, 0.5))
+
+    def test_sequence_adaptive_xpl_calibration_uses_background_roi_and_home(self):
+        cam = AngleAwareCalibrationCamera()
+        ctrl = CalibrationController(cam)
+        seq = PicsSequence(ctrl, cam)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.local_xpl_test_config(coarse_angles=[39, 40, 41]):
+                seq.run_sequence(
+                    tmpdir,
+                    "sample_local",
+                    50000,
+                    12000,
+                    sample_angles=[0],
+                    do_xpl=True,
+                    do_ppl=False,
+                    xpl_polarizer_angle=40,
+                )
+
+            metadata_path = os.path.join(tmpdir, "sample_local", "sample_local_metadata.json")
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+
+            calibration = metadata["local_xpl_calibrations"][0]
+            self.assertEqual(calibration["background_roi"], {"x": 1, "y": 1, "width": 4, "height": 3})
+            self.assertEqual(
+                calibration["background_rois"],
+                {
+                    "bottom": {"x": 1, "y": 1, "width": 4, "height": 3},
+                    "top": {"x": 1, "y": 0, "width": 4, "height": 3},
+                },
+            )
+            self.assertEqual(calibration["selected_background_roi_name"], "bottom")
+            self.assertEqual(calibration["coarse_angles_deg"], [39, 40, 41])
+            self.assertEqual(calibration["coarse_trigger_angle_deg"], 39)
+            self.assertEqual(calibration["fine_start_angle_deg"], 39)
+            self.assertEqual(calibration["fine_angles_deg"], [39, 40, 41])
+            self.assertEqual(calibration["selected_xpl_angle_deg"], 39)
+            self.assertTrue(calibration["confirmation_ok"])
+            self.assertEqual(metadata["mode_angles_deg"]["xpl"], 39)
+            self.assertEqual(ctrl.home_calls, 1)
+            self.assertEqual(ctrl.sample_moves[0], 0)
+            self.assertEqual(ctrl.sample_moves[-1], 0)
+
+    def test_sequence_adaptive_xpl_calibration_can_focus_top_roi(self):
+        cam = SplitRoiCalibrationCamera()
+        ctrl = CalibrationController(cam)
+        seq = PicsSequence(ctrl, cam)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.multiple(
+                config,
+                XPL_BACKGROUND_ROI_X=1,
+                XPL_BACKGROUND_ROI_TOP_Y=0,
+                XPL_BACKGROUND_ROI_BOTTOM_Y=3,
+                XPL_BACKGROUND_ROI_WIDTH=4,
+                XPL_BACKGROUND_ROI_HEIGHT=2,
+                XPL_ADAPTIVE_COARSE_ANGLES_DEG=[39, 40, 41],
+                XPL_LOCAL_COARSE_TRIGGER_MEAN=80.0,
+                XPL_LOCAL_CALIBRATION_RADIUS_DEG=1,
+                XPL_LOCAL_CALIBRATION_STEP_DEG=1,
+                XPL_LOCAL_FINE_MAX_SPAN_DEG=2,
+                XPL_LOCAL_FINE_STOP_INCREASE_COUNT=2,
+                XPL_LOCAL_FINE_STOP_RATIO=1.2,
+                XPL_LOCAL_CALIBRATION_FINAL_APPROACH_OFFSET_DEG=1,
+                XPL_LOCAL_CONFIRMATION_MAX_MEAN=1000.0,
+                XPL_LOCAL_CONFIRMATION_MAX_RATIO=10.0,
+                XPL_LOCAL_CONFIRMATION_REFINE_RADIUS_DEG=1,
+                XPL_LOCAL_CONFIRMATION_MAX_REFINES=0,
+            ):
+                seq.run_sequence(
+                    tmpdir,
+                    "sample_top_roi",
+                    50000,
+                    12000,
+                    sample_angles=[0],
+                    do_xpl=True,
+                    do_ppl=False,
+                    xpl_polarizer_angle=40,
+                )
+
+            metadata_path = os.path.join(tmpdir, "sample_top_roi", "sample_top_roi_metadata.json")
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+
+            calibration = metadata["local_xpl_calibrations"][0]
+            self.assertEqual(calibration["selected_background_roi_name"], "top")
+            self.assertEqual(calibration["background_roi"], {"x": 1, "y": 0, "width": 4, "height": 2})
+            self.assertEqual(calibration["coarse_trigger_roi_name"], "top")
+            self.assertEqual(calibration["selected_xpl_angle_deg"], 40)
+
+    def test_roi_signal_uses_requested_rectangle_and_rejects_out_of_bounds(self):
+        seq = PicsSequence(FakeController(), FakeSequenceCamera())
+        img = np.full((10, 12), 1000, dtype=np.uint16)
+        img[3:5, 2:6] = 12
+
+        self.assertEqual(seq._measure_roi_signal_level(img, (2, 3, 4, 2)), 12.0)
+        with self.assertRaises(ValueError):
+            seq._measure_roi_signal_level(img, (9, 8, 4, 3))
 
     def test_polarizer_calibration_recommends_darkest_xpl_and_derived_ppl(self):
         cam = AngleAwareCalibrationCamera()
@@ -357,16 +504,21 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
         seq = PicsSequence(ctrl, cam)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            seq.run_polarizer_calibration(
-                tmpdir,
-                "sample_cal",
-                50000,
-                polarizer_angles=[0, 20, 40, 60, 80],
-                sample_angle=0,
-                live_exposure_us=12000,
-                live_gain_db=0.5,
-                live_thread_was_running=True,
-            )
+            with self.local_xpl_test_config(
+                coarse_angles=[0, 20, 40, 60, 80],
+                coarse_trigger_mean=80.0,
+                fine_max_span_deg=30,
+            ):
+                seq.run_polarizer_calibration(
+                    tmpdir,
+                    "sample_cal",
+                    70000,
+                    polarizer_angles=[0, 20, 40, 60, 80],
+                    sample_angle=0,
+                    live_exposure_us=12000,
+                    live_gain_db=0.5,
+                    live_thread_was_running=True,
+                )
 
             self.assertEqual(seq.last_calibration_info["recommended_xpl_angle_deg"], 39)
             self.assertEqual(seq.last_calibration_info["recommended_ppl_angle_deg"], 129)
@@ -380,10 +532,27 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
             self.assertEqual(metadata["recommended_xpl_angle_deg"], 39)
             self.assertEqual(metadata["recommended_ppl_angle_deg"], 129)
             self.assertEqual(metadata["recommended_ppl_offset_deg"], 90)
-            self.assertEqual(metadata["coarse_darkest_angle_deg"], 40)
-            self.assertEqual(metadata["fine_scan_angles_deg"][0], 30)
-            self.assertEqual(metadata["fine_scan_angles_deg"][-1], 50)
-            self.assertEqual(len(metadata["scan_results"]), 26)
+            self.assertEqual(metadata["adaptive_exposure_us"], 70000)
+            self.assertEqual(metadata["coarse_scan_angles_deg"], [0, 20, 40, 60, 80])
+            calibration = metadata["local_xpl_calibrations"][0]
+            self.assertEqual(calibration["coarse_angles_deg"], [0, 20, 40, 60, 80])
+            self.assertEqual(calibration["selected_background_roi_name"], "bottom")
+            self.assertEqual(calibration["fine_start_angle_deg"], 39)
+            self.assertEqual(calibration["fine_angles_deg"], [39, 40, 41, 42])
+            self.assertEqual(len(metadata["scan_results"]), 10)
+            self.assertEqual(metadata["scan_results"][0]["exposure_us"], 70000)
+            self.assertEqual(metadata["scan_results"][-1]["exposure_us"], 70000)
+            self.assertEqual(cam.exposure_calls, [70000])
+            self.assertEqual(ctrl.polarizer_moves[:5], [0, 20, 40, 60, 80])
+            self.assertEqual(ctrl.polarizer_moves[5:9], [39, 40, 41, 42])
+            self.assertEqual(ctrl.polarizer_moves[9:11], [38, 39])
+
+    def test_signal_level_uses_center_roi_when_requested(self):
+        seq = PicsSequence(FakeController(), FakeSequenceCamera())
+        img = np.full((10, 10), 1000, dtype=np.uint16)
+        img[3:7, 3:7] = 10
+
+        self.assertEqual(seq._measure_signal_level(img, roi_size_px=4), 10.0)
 
     def test_choose_orthogonal_polarizer_angle_uses_negative_90_when_positive_is_out_of_range(self):
         ppl_angle, offset = utils.choose_orthogonal_polarizer_angle(120, 0, 169)
@@ -430,23 +599,24 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
 
     def test_sequence_partial_failure_saves_partial_metadata_and_restores_live(self):
         ctrl = FakeController()
-        cam = FakeSequenceCamera(fail_after=1)
+        cam = FakeSequenceCamera(fail_after=6)
         seq = PicsSequence(ctrl, cam)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaises(RuntimeError):
-                seq.run_sequence(
-                    tmpdir,
-                    "sample2",
-                    50000,
-                    12000,
-                    sample_angles=[0, 10],
-                    do_xpl=True,
-                    do_ppl=False,
-                    live_exposure_us=10000,
-                    live_gain_db=0.25,
-                    live_thread_was_running=True,
-                )
+                with self.local_xpl_test_config():
+                    seq.run_sequence(
+                        tmpdir,
+                        "sample2",
+                        50000,
+                        12000,
+                        sample_angles=[0, 10],
+                        do_xpl=True,
+                        do_ppl=False,
+                        live_exposure_us=10000,
+                        live_gain_db=0.25,
+                        live_thread_was_running=True,
+                    )
 
             metadata_path = os.path.join(tmpdir, "sample2", "sample2_metadata.json")
             with open(metadata_path, "r", encoding="utf-8") as f:
@@ -498,7 +668,7 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
             window.sequence_logic.last_run_info = {"cleanup_error": "", "should_restart_live": True}
             window.ctrl.is_connected = True
             window.ctrl.get_state = lambda: main_module.STATE_ARMED
-            window.restore_ui_after_sequence()
+            window.restore_ui_after_capture()
 
             self.assertIsNotNone(window.cam_thread)
             self.assertEqual(window.btn_cam_connect.text(), "Disconnect Camera")
@@ -513,7 +683,7 @@ class TestXimeaRaw16Sequence(unittest.TestCase):
         ):
             window = main_module.MainWindow()
             window.sequence_logic.last_run_info = {"cleanup_error": "restore failed", "should_restart_live": False}
-            window.restore_ui_after_sequence()
+            window.restore_ui_after_capture()
 
             self.assertEqual(window.current_state, main_module.STATE_ERROR)
             self.assertEqual(window.btn_cam_connect.text(), "Connect Camera")

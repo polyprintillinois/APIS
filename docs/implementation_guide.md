@@ -328,8 +328,12 @@ For the current XIMEA-based acquisition setup:
 - The current default polarizer baseline is:
   - PPL: `5 deg`
   - XPL: `95 deg`
-- Polarizer-angle calibration should use a separate default exposure baseline:
-  - Polarizer calibration scan: `200000 us`
+- Polarizer-angle calibration uses the adaptive local XPL search path:
+  - Default polarizer calibration exposure: `400000 us`
+  - Coarse scan uses the configured polarizer angle range.
+  - It watches bottom ROI `x=700, y=1000, width=700, height=80 px` and top ROI `x=700, y=0, width=700, height=80 px`.
+  - Fine scan and confirmation stay focused on the ROI that triggered or produced the darker coarse signal.
+- Before XPL sequence capture, local XPL search starts from `HOME` with sample at `0 deg`, uses the same top/bottom background ROIs, enters fine scan once either coarse ROI mean is `<=80`, and requires confirmation ROI mean `<=65` and `<=1.2x` of the selected scan minimum.
 - Sequence outputs should be saved as Bayer RAW `uint16 TIFF` plus per-sequence CSV and JSON metadata
 
 ## 11. Verification Checklist

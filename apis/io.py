@@ -63,7 +63,7 @@ def append_to_log(log_path, data_dict):
     fieldnames = [
         "timestamp", "mode", "exposure_us", "gain", 
         "polarizer_angle", "sample_angle", "filepath", 
-        "arduino_response", "attempt_count", "signal_mean"
+        "arduino_response", "attempt_count", "signal_mean", "details_json",
     ]
     
     try:
@@ -73,6 +73,10 @@ def append_to_log(log_path, data_dict):
             if not file_exists:
                 writer.writeheader()
                 
+            if "details_json" not in data_dict and "details" in data_dict:
+                data_dict = dict(data_dict)
+                data_dict["details_json"] = json.dumps(data_dict["details"], ensure_ascii=False)
+
             # Filter data_dict to only known fields to avoid errors
             row = {k: data_dict.get(k, "") for k in fieldnames}
             writer.writerow(row)

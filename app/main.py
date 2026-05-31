@@ -10,11 +10,11 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QPushButton, QComboBox, QGroupBox, QSpinBox, QCheckBox,
-    QDoubleSpinBox, QSlider, QLineEdit, QProgressBar, QTextEdit, 
-    QFileDialog, QMessageBox, QFrame, QGridLayout
+    QDoubleSpinBox, QLineEdit, QProgressBar, QTextEdit,
+    QFileDialog, QMessageBox, QFrame, QGridLayout, QSizePolicy
 )
-from PyQt6.QtCore import Qt, pyqtSlot, QTimer
-from PyQt6.QtGui import QImage, QPixmap, QColor, QPalette, QIcon
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QImage, QPixmap, QIcon
 
 # Add project root to path
 sys.path.append(".") 
@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
                 self.setWindowIcon(QIcon(icon_path))
                 break
         self.resize(1400, 850)
+        self.setMinimumSize(1200, 760)
         
         # 1. Init Base State & UI (Required for Logging)
         self.current_state = STATE_DISCONNECTED
@@ -98,6 +99,7 @@ class MainWindow(QMainWindow):
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setMaximumHeight(150)
+        self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         
         # Redirect Logger to UI
         logging.getLogger().setLevel(logging.INFO)
@@ -159,6 +161,13 @@ class MainWindow(QMainWindow):
         sb = self.log_text.verticalScrollBar()
         sb.setValue(sb.maximum())
         print(formatted) # console backup
+
+    @staticmethod
+    def _compact_status_text(msg, max_chars=110):
+        msg = str(msg)
+        if len(msg) <= max_chars:
+            return msg
+        return msg[: max_chars - 3] + "..."
 
     # --- UI CREATION HELPERS ---
     
@@ -301,6 +310,7 @@ class MainWindow(QMainWindow):
         
         self.lbl_live = QLabel("No Signal")
         self.lbl_live.setMinimumSize(640, 480)
+        self.lbl_live.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.lbl_live.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_live.setStyleSheet("background-color: black; color: white;")
         layout.addWidget(self.lbl_live)
@@ -438,18 +448,22 @@ class MainWindow(QMainWindow):
 
         self.lbl_calibration_result = QLabel("Baseline: loading...")
         self.lbl_calibration_result.setWordWrap(True)
+        self.lbl_calibration_result.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         layout.addWidget(self.lbl_calibration_result, 13, 0, 1, 3)
 
         self.btn_start = QPushButton("START SEQUENCE")
         self.btn_start.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 10px;")
         self.btn_start.clicked.connect(self.on_start_sequence)
-        layout.addWidget(self.btn_start, 14, 0, 1, 3)
+        layout.addWidget(self.btn_start, 15, 0, 1, 3)
         
         self.progress = QProgressBar()
-        layout.addWidget(self.progress, 15, 0, 1, 3)
+        layout.addWidget(self.progress, 16, 0, 1, 3)
         
         self.lbl_seq_status = QLabel("Idle")
-        layout.addWidget(self.lbl_seq_status, 16, 0, 1, 3)
+        self.lbl_seq_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.lbl_seq_status.setFixedHeight(36)
+        self.lbl_seq_status.setWordWrap(True)
+        layout.addWidget(self.lbl_seq_status, 17, 0, 1, 3)
         
         grp.setLayout(layout)
         return grp
@@ -842,7 +856,7 @@ class MainWindow(QMainWindow):
         save_dir = self.edt_save_dir.text()
         sid = self.edt_sample_id.text()
         settling = self.spin_settling.value()
-        exposure_us = self.spin_cal_exp.value()
+        calibration_exposure_us = self.spin_cal_exp.value()
         sample_angle = self.spin_cal_sample_angle.value()
         polarizer_angles, angle_err = self.parse_angles(
             self.edt_cal_angles.text(),
@@ -872,7 +886,7 @@ class MainWindow(QMainWindow):
             self.sequence_logic,
             save_dir,
             sid,
-            exposure_us,
+            calibration_exposure_us,
             polarizer_angles,
             sample_angle,
             self.spin_exp.value(),
@@ -886,10 +900,31 @@ class MainWindow(QMainWindow):
         self.calib_thread.start()
 
     def on_seq_progress_msg(self, msg):
-        self.lbl_seq_status.setText(msg)
+        self.lbl_seq_status.setToolTip(str(msg))
+        self.lbl_seq_status.setText(self._compact_status_text(msg))
         self.log(msg)
 
     def on_seq_finished(self):
+        run_info = getattr(self.sequence_logic, "last_run_info", {}) or {}
+        effective_xpl_angle = run_info.get("effective_xpl_angle_deg")
+        if effective_xpl_angle is not None:
+            try:
+                self._apply_polarizer_baseline(
+                    int(effective_xpl_angle),
+                    source="adaptive XPL sequence",
+                    persist=True,
+                )
+                self.log(f"Updated polarizer baseline from sequence: XPL={int(effective_xpl_angle)} deg")
+            except ValueError as e:
+                self.log(f"Sequence XPL baseline rejected: {e}", "WARN")
+
+        final_polarizer_angle = run_info.get("final_polarizer_angle_deg")
+        if final_polarizer_angle is not None and hasattr(self, "spin_pol"):
+            self.spin_pol.setValue(int(final_polarizer_angle))
+        final_sample_angle = run_info.get("final_sample_angle_deg")
+        if final_sample_angle is not None and hasattr(self, "spin_samp"):
+            self.spin_samp.setValue(int(final_sample_angle))
+        self.update_status_info()
         self.log("Sequence Finished Successfully.")
         self.restore_ui_after_capture()
         
@@ -961,9 +996,6 @@ class MainWindow(QMainWindow):
         self.lbl_seq_status.setText("Idle")
         self.seq_thread = None
         self.calib_thread = None
-
-    def restore_ui_after_sequence(self):
-        self.restore_ui_after_capture()
 
     def on_xpl_angle_changed(self, value):
         if self._syncing_polarizer_angles:
