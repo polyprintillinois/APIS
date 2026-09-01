@@ -35,13 +35,13 @@ APIS (Latin for 'bee') is a control system for an automated 2-axis polarization 
   - Follow this guide for the printed parts, stage stack-up, bearings, and gear assembly.
 - Hardware implementation guide: `docs/implementation_guide.md`
   - Follow this guide for the physical build, wiring, calibration, and verification steps.
-- Controller: Arduino Uno (used in our lab setup; other compatible Arduino boards may also work)
+- Controller: Arduino Uno (reference configuration; other compatible Arduino boards may also work)
 - Polarizer motor (Axis 1): SG90 servo @ Pin 10
 - Sample motor (Axis 2): HS-318 servo @ Pin 11
 - Camera: XIMEA USB 3.0/3.1 camera
 - Polarizer film: Edmund Optics `50 mm Dia. Linear Polarizing Film (XP42-18)`, PN `29490`
 - Analyzer polarizer: mount a second linear polarizer in front of the camera lens for XPL imaging
-- Backlight: MORITEX MEBL-CW7050 with MLEK-A080W2LR (used in our lab setup)
+- Backlight: MORITEX MEBL-CW7050 with MLEK-A080W2LR (reference configuration)
   - Other backlight models can be used.
   - Mechanical/optical design should be adapted to the selected backlight specifications.
 - Bearing balls: McMaster-Carr `9292K74`, hard wear-resistant 52100 alloy steel balls, `5.5 mm` diameter
@@ -259,3 +259,9 @@ XIMEA drivers/xiAPI must be installed first. The EXE does not bundle the SDK.
 
 - `data/`, `dist/`, and `release/*.zip` are ignored by git
 - `.vscode/` and `build_venv/` are ignored by git
+
+---
+
+## 11. License
+
+APIS is open-source software licensed under the [MIT License](LICENSE).
