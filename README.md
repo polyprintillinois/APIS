@@ -1,6 +1,6 @@
 # APIS: Automated Polarization Imaging System
 
-This repository accompanies **Hwang, Elangovan, Damron, Kwok, Jeon & Diao, "Democratizing Lab Automation through Multi-Agent-Assisted Design and 3D Printing"** (submitted, 2026). Archived release: Zenodo DOI [to be added]. Code is released under the MIT licence; printed-part designs (STL) and documentation may be reused under the same terms with attribution.
+This repository accompanies **Hwang, Elangovan, Damron, Kwok, Jeon & Diao, "Democratizing Lab Automation through Multi-Agent-Assisted Design and 3D Printing"** (submitted, 2026). Archived releases: [Zenodo DOI 10.5281/zenodo.22695807](https://doi.org/10.5281/zenodo.22695807). Code is released under the MIT licence; printed-part designs (STL) and documentation may be reused under the same terms with attribution.
 
 APIS (Latin for 'bee') is a control system for an automated 2-axis polarization imaging setup using Arduino, Python (PyQt6), and XIMEA cameras.
 
