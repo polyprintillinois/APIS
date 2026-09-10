@@ -1,5 +1,7 @@
 # APIS: Automated Polarization Imaging System
 
+This repository accompanies **Hwang, Elangovan, Damron, Kwok, Jeon & Diao, "Democratizing Lab Automation through Multi-Agent-Assisted Design and 3D Printing"** (submitted, 2026). Archived release: Zenodo DOI [to be added]. Code is released under the MIT licence; printed-part designs (STL) and documentation may be reused under the same terms with attribution.
+
 APIS (Latin for 'bee') is a control system for an automated 2-axis polarization imaging setup using Arduino, Python (PyQt6), and XIMEA cameras.
 
 ---
@@ -8,12 +10,15 @@ APIS (Latin for 'bee') is a control system for an automated 2-axis polarization 
 
 ---
 
-## 0. Quick Start
-1) Install XIMEA drivers + xiAPI, and flash Arduino firmware
-2) Build the hardware by following `docs/hardware_assembly_guide.md` and `docs/implementation_guide.md`
-3) Review the calibration notes in `docs/implementation_guide.md`
-4) Run `python app/main.py`
-5) Connect Camera, Connect Controller, press RESET/ARM, then START SEQUENCE
+## First run (hello world)
+
+1. Complete the hardware assembly and wiring in `docs/hardware_assembly_guide.md` and `docs/implementation_guide.md`, then flash `firmware/APIS_Firmware/APIS_Firmware.ino` to the Arduino Uno. Before connecting the HS-318 sample-stage servo, set the LM2596 output to approximately 6 V with a multimeter. The SG90 polarizer servo is powered from the Arduino 5 V rail.
+2. Install the XIMEA API/driver, then launch the host app from the `APIS-win64` zip on the Releases page or run `python app/main.py`.
+3. Connect the Arduino COM port and the camera, then click **RESET / ARM**. Confirm that the live view appears.
+4. Move the polarizer to 0° and then 90°. With the analyzer fixed and the axes aligned, the live image should change from bright (parallel polarizers) to dark (crossed polarizers).
+5. Insert a blank glass slide, select a save directory, and click **Snapshot**. Confirm that an RGB TIFF image and its entry in `snapshot_log.csv` are written to the selected directory.
+
+No camera? `python scripts/check_hardware.py` verifies the Arduino serial link, and `python -m unittest tests.test_mock_serial` exercises the control logic without hardware. Run either command from the repository root.
 
 ---
 
@@ -38,7 +43,8 @@ APIS (Latin for 'bee') is a control system for an automated 2-axis polarization 
 - Controller: Arduino Uno (reference configuration; other compatible Arduino boards may also work)
 - Polarizer motor (Axis 1): SG90 servo @ Pin 10
 - Sample motor (Axis 2): HS-318 servo @ Pin 11
-- Camera: XIMEA USB 3.0/3.1 camera
+- Camera: XIMEA MQ022CG-CM
+- Imaging optics: Navitar `1-50486`, `1-50013`, and `1-51490`
 - Polarizer film: Edmund Optics `50 mm Dia. Linear Polarizing Film (XP42-18)`, PN `29490`
 - Analyzer polarizer: mount a second linear polarizer in front of the camera lens for XPL imaging
 - Backlight: MORITEX MEBL-CW7050 with MLEK-A080W2LR (reference configuration)
@@ -203,7 +209,13 @@ If you are assembling the hardware from scratch, complete the mechanical assembl
 
 ---
 
-## 7. Safety Logic
+## 7. Safety
+
+- Keep fingers, loose clothing, and tools away from the servo-driven gears and rotation stages while the system is ARMED or running a sequence.
+- Set and verify the LM2596 output with a multimeter before connecting the HS-318 servo. An incorrect output voltage can damage the servo or Arduino.
+- The backlight can become hot during extended operation. Allow airflow around the base and let the light cool before handling it.
+
+### Control Safety Logic
 
 - LATCHED: default on boot or ESTOP, motors detached
 - ARMED: motors attached, motion enabled
@@ -237,7 +249,7 @@ Recommended flow:
 
 Example:
 ```powershell
-.\build\build.ps1 -Version 0.1.3
+.\build\build.ps1 -Version 0.1.4
 ```
 
 ### Distribution package

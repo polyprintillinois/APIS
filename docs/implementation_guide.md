@@ -14,7 +14,8 @@ APIS is a 2-axis polarization imaging platform built around two servos, an Ardui
 - Axis 2: HS-318 servo for sample rotation
 - Controller: Arduino Uno
 - Host PC: Python GUI communicating over USB serial
-- Camera: XIMEA USB camera
+- Camera: XIMEA MQ022CG-CM
+- Imaging optics: Navitar 1-50486, 1-50013, and 1-51490
 - Light source: MORITEX backlight or equivalent
 
 The control flow is:
@@ -33,7 +34,8 @@ The control flow is:
 | Controller | Arduino board | Arduino Uno | 1 | Matches current firmware |
 | Servo motor | Polarizer axis servo | SG90 | 1 | Signal on pin 10 |
 | Servo motor | Sample axis servo | HS-318 | 1 | Signal on pin 11 |
-| Camera | Industrial camera | XIMEA USB 3.0/3.1 camera | 1 | Connected directly to PC |
+| Camera | Industrial camera | XIMEA MQ022CG-CM | 1 | Connected directly to PC over USB 3.0/3.1 |
+| Imaging optics | Lens components | Navitar 1-50486, 1-50013, and 1-51490 | 1 set | Camera-side optical assembly; matches Table S3 |
 | Illumination | Backlight | MORITEX MEBL-CW7050 + MLEK-A080W2LR | 1 | Lab-used combination |
 | Power | External power adapter | UNIFIVE UN318-1215, 12V 1.5A | 1 | Main power input |
 | Power regulation | DC-DC buck converter | LM2596 / LM2596S module | 1 | Powers HS-318 |
@@ -79,9 +81,10 @@ Build the power path as follows:
 
 1. Connect the `UNIFIVE UN318-1215 (12V 1.5A)` adapter to the Arduino power input.
 2. Connect Arduino `VIN/GND` to the regulator `VIN/GND`.
-3. Connect Arduino `5V/GND` to the SG90 power pins.
-4. Connect regulator `VOUT/GND` to the HS-318 power pins.
-5. Keep Arduino, SG90, and HS-318 on a common ground.
+3. Before connecting the HS-318, use a multimeter to set the regulator output to approximately `6 V`.
+4. Connect Arduino `5V/GND` to the SG90 power pins.
+5. Connect regulator `VOUT/GND` to the HS-318 power pins.
+6. Keep Arduino, SG90, and HS-318 on a common ground.
 
 Reference wiring:
 
@@ -102,7 +105,7 @@ Regulator VOUT/GND
 ### 5.2 Core Rules
 
 - Power the SG90 from Arduino `5V/GND`.
-- Power the HS-318 from the regulator `VOUT/GND`.
+- Power the HS-318 from the regulator `VOUT/GND`, set to approximately `6 V` before the servo is connected.
 - Share ground between Arduino and both servos.
 - Route only servo signal lines to the Arduino digital pins.
 
@@ -123,6 +126,13 @@ Regulator output VOUT/GND
 ```
 
 This wiring matches the current firmware and control application.
+
+### 5.4 Hardware Safety
+
+- Keep fingers, loose clothing, hair, tools, and cables clear of the servo-driven gears and rotation stages whenever the system is `ARMED`. Press `E-STOP` and disconnect power before adjusting the mechanical assembly by hand.
+- Set and verify the LM2596 output before connecting the HS-318. Leave the servo disconnected, power the regulator, measure across `VOUT/GND` with a multimeter, adjust the output to approximately `6 V`, switch power off, and only then connect the servo with the correct polarity.
+- The backlight and nearby structure can become hot during extended operation. Maintain airflow, avoid touching the illuminated assembly while powered, and allow it to cool before repositioning or servicing it.
+- `E-STOP` releases servo torque; support the stages as needed because they may rotate freely after the servos detach.
 
 ## 6. Why Calibration Is Required
 
@@ -228,7 +238,7 @@ Regulator VOUT/GND
 
 1. Connect the `UNIFIVE UN318-1215 12V 1.5A` adapter to the Arduino power input.
 2. Connect Arduino `VIN/GND` to regulator `VIN/GND`.
-3. Use a multimeter to set the regulator output voltage for the HS-318.
+3. Before connecting the HS-318, use a multimeter to set the regulator output to approximately `6 V`.
 4. Connect Arduino `5V/GND` to SG90 `V+/GND`.
 
 ### Step 2. Connect the Signal Lines
@@ -257,7 +267,23 @@ Regulator VOUT/GND
 4. Trigger `ESTOP` and verify torque is released immediately.
 5. If needed, run `scripts/test_servo_limits.py` to probe raw servo endpoint behavior inside the firmware-supported `0-180` range.
 
-### Step 6. Run Stage Calibration
+### Step 6. First Functional Check ("Hello World")
+
+Use this short check to verify controller motion, live view, and snapshot saving before calibration or a full sequence:
+
+1. Insert a blank glass slide, and confirm that both rotating stages are unobstructed.
+2. Launch the application with `python app/main.py`.
+3. Select the Arduino COM port, click `Connect Controller`, and confirm that the controller reports `LATCHED`.
+4. Click `RESET / ARM` and confirm that the controller reports `ARMED`.
+5. In `Manual Motor Control`, set the polarizer to `0 deg` and click `Move`; then set it to `90 deg` and click `Move`. Confirm smooth motion with no mechanical interference.
+6. Click `Connect Camera`, confirm that the application log identifies `XimeaCamera (Hardware)`, turn on the backlight, and verify that the live view updates. With the analyzer fixed and the axes aligned, the field should change from bright near parallel alignment to dark near crossed alignment.
+7. In the live-view snapshot controls, select a save directory and enter `blank` as the filename.
+8. Click `Snapshot` once. Verify that `blank_<timestamp>.tif` and `snapshot_log.csv` are created in the selected directory.
+9. Press `E-STOP` when the check is complete.
+
+This snapshot is an RGB live-view functional check; calibrated sequence acquisition continues to use RAW16 TIFF output.
+
+### Step 7. Run Stage Calibration
 
 1. Place a calibration target or asymmetric sample on the stage being calibrated.
 2. Capture a `PPL` sequence across known commanded angles such as `0, 15, 30, ...`.
@@ -340,11 +366,15 @@ For the current XIMEA-based acquisition setup:
 
 - The UNIFIVE UN318-1215 12V 1.5A adapter is connected correctly to the Arduino power input
 - Arduino `VIN/GND` is connected correctly to regulator `VIN/GND`
+- The LM2596 output was measured at approximately `6 V` with the HS-318 disconnected before servo power was connected
 - Arduino `5V/GND` is connected correctly to the SG90
 - Regulator `VOUT/GND` is connected correctly to the HS-318
 - Regulator `GND` and Arduino `GND` are common
 - SG90 is on `D10` and HS-318 is on `D11`
 - `READY -> RESET -> move -> ESTOP` works as expected
+- The polarizer completes the `0 deg -> 90 deg` functional check without mechanical interference
+- The XIMEA MQ022CG-CM live view works through the Navitar 1-50486 / 1-50013 / 1-51490 optical assembly
+- One blank snapshot and its `snapshot_log.csv` entry are saved successfully
 - Motion commands are rejected after `ESTOP`
 - No mechanical interference occurs across the full calibrated motion range
 - Sample-stage calibration has been run after assembly or rebuild

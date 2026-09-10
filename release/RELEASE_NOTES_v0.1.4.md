@@ -6,6 +6,9 @@ This release updates the XPL calibration/search workflow so APIS can handle film
 
 ## Changed Since v0.1.3
 
+- Added the MIT license, manuscript citation, first-run verification workflow, and expanded hardware safety guidance.
+- Added `.zenodo.json` archival metadata with ORCID identifiers for Changhyun Hwang and Ying Diao.
+- Documented the XIMEA MQ022CG-CM camera and Navitar 1-50486, 1-50013, and 1-51490 imaging components.
 - Local XPL search now checks both background ROIs during the coarse scan:
   - bottom ROI: `x=700, y=1000, width=700, height=80 px`
   - top ROI: `x=700, y=0, width=700, height=80 px`

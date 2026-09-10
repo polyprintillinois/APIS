@@ -1,0 +1,53 @@
+{
+  "title": "APIS: Automated Polarization Imaging System (firmware, PyQt6 host application, CAD/STL, documentation)",
+  "description": "This repository accompanies the manuscript \"Democratizing Lab Automation through Multi-Agent-Assisted Design and 3D Printing\" (Hwang et al., submitted to Digital Discovery, 2026). APIS is a two-axis, servo-driven polarization imaging platform with a 3D-printed optical stack that automates parallel- and cross-polarized image series of printed thin films. The repository contains the Arduino firmware, the PyQt6 host application with XIMEA camera control, STL files for the printed stack and gears, calibration scripts, the bill of materials, and assembly and implementation guides.",
+  "creators": [
+    {
+      "name": "Hwang, Changhyun",
+      "affiliation": "University of Illinois Urbana-Champaign",
+      "orcid": "0000-0003-1720-7852"
+    },
+    {
+      "name": "Elangovan, Kavinraaj Ella",
+      "affiliation": "University of Illinois Urbana-Champaign"
+    },
+    {
+      "name": "Damron, Alec M.",
+      "affiliation": "University of Illinois Urbana-Champaign"
+    },
+    {
+      "name": "Kwok, Justin J.",
+      "affiliation": "University of Illinois Urbana-Champaign"
+    },
+    {
+      "name": "Jeon, Sanghyun",
+      "affiliation": "University of Illinois Urbana-Champaign"
+    },
+    {
+      "name": "Diao, Ying",
+      "affiliation": "University of Illinois Urbana-Champaign",
+      "orcid": "0000-0002-8984-0051"
+    }
+  ],
+  "license": "MIT",
+  "upload_type": "software",
+  "access_right": "open",
+  "keywords": [
+    "lab automation",
+    "polarized optical microscopy",
+    "birefringence",
+    "open hardware",
+    "3D printing",
+    "Arduino",
+    "self-driving laboratory",
+    "thin films"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/polyprintillinois/APIS",
+      "relation": "isSupplementTo",
+      "resource_type": "software"
+    }
+  ],
+  "notes": "Code, design files and documentation released with the manuscript; see the repository README for build and usage instructions."
+}
