@@ -12,13 +12,14 @@ APIS (Latin for 'bee') is a control system for an automated 2-axis polarization 
 
 ## First run (hello world)
 
-1. Complete the hardware assembly and wiring in `docs/hardware_assembly_guide.md` and `docs/implementation_guide.md`, then flash `firmware/APIS_Firmware/APIS_Firmware.ino` to the Arduino Uno. Before connecting the HS-318 sample-stage servo, set the LM2596 output to approximately 6 V with a multimeter. The SG90 polarizer servo is powered from the Arduino 5 V rail.
-2. Install the XIMEA API/driver, then launch the host app from the `APIS-win64` zip on the Releases page or run `python app/main.py`.
-3. Connect the Arduino COM port and the camera, then click **RESET / ARM**. Confirm that the live view appears.
-4. Move the polarizer to 0° and then 90°. With the analyzer fixed and the axes aligned, the live image should change from bright (parallel polarizers) to dark (crossed polarizers).
-5. Insert a blank glass slide, select a save directory, and click **Snapshot**. Confirm that an RGB TIFF image and its entry in `snapshot_log.csv` are written to the selected directory.
+1. Flash `firmware/APIS_Firmware/APIS_Firmware.ino` to the Arduino Uno. Power the sample-stage servo (HS-318) from the LM2596 buck converter (set to approximately `6 V` before connecting), **not** from the Arduino `5 V` rail; the polarizer servo (SG90) runs from the Arduino `5 V` rail.
+2. Install the XIMEA API/driver, then launch the host app (`APIS-win64` zip from Releases, or `python app/main.py`).
+3. Connect the Arduino COM port and the camera. Click **RESET / ARM**; the live view should appear.
+4. Move the polarizer to `0 deg` and then `90 deg`: with the analyzer fixed and the axes aligned, the image should go from bright (parallel polarizers) to dark (crossed polarizers).
+5. Insert a blank glass slide. In `Sequence Control`, select only `PPL`, enter sample angles `0,45,90`, choose the output directory and sample ID, and start the sequence. Three RAW16 TIFF frames plus per-frame CSV and per-sequence JSON metadata should be written under the sample output folder.
+6. Test **E-STOP** during a move: motion stops and both servos release torque; **RESET / ARM** re-arms the system.
 
-No camera? `python scripts/check_hardware.py` verifies the Arduino serial link, and `python -m unittest tests.test_mock_serial` exercises the control logic without hardware. Run either command from the repository root.
+No camera? `python scripts/check_hardware.py` verifies the Arduino serial link, and `python -m unittest tests.test_mock_serial` exercises the control logic without hardware. Run either command from the repository root. The mock test command runs six tests and does not require a connected camera.
 
 ---
 
@@ -211,9 +212,10 @@ If you are assembling the hardware from scratch, complete the mechanical assembl
 
 ## 7. Safety
 
-- Keep fingers, loose clothing, and tools away from the servo-driven gears and rotation stages while the system is ARMED or running a sequence.
-- Set and verify the LM2596 output with a multimeter before connecting the HS-318 servo. An incorrect output voltage can damage the servo or Arduino.
-- The backlight can become hot during extended operation. Allow airflow around the base and let the light cool before handling it.
+- Set the buck-converter output with a multimeter before connecting the servo; an incorrect setting can damage the servo or connected electronics.
+- The rotation stages turn without warning during sequences; keep fingers away from the gears and do not reach into the stack while `ARMED`.
+- The backlight and servos warm up during long sequences; allow airflow around the base of the stack.
+- Polarizing film and camera optics are easily scratched; handle them by the edges and keep the optical path capped when not in use.
 
 ### Control Safety Logic
 
